@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - main
+      - feat-site
   workflow_dispatch:
 
 permissions:
