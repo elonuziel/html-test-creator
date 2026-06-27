@@ -304,6 +304,12 @@ print("correctIndex values applied from answer key.")
 > | Other | Discuss with the user and implement accordingly. |
 >
 > The app shuffles displayed options but tracks the **original array index**, so `correctIndex` must always be the pre-shuffle position in the `options` array.
+>
+> **💡 Alternative — Frontend Adaptation:** If you prefer not to manipulate the source data at all, you can leave `answers.json` as 1-based and instead adjust the JavaScript evaluation in `app.js`:
+> ```javascript
+> const isCorrect = (selectedId + 1) === correctId;
+> ```
+> This approach keeps the raw data untouched and is useful when you want a single `answers.json` to remain readable without knowing the app's internal indexing scheme.
 
 ---
 
@@ -695,6 +701,18 @@ print(f"Merged {len(all_questions)} questions from {len(glob.glob('pages/page_*.
 **Step D** — If the user said the answer key is not "first option always", apply `apply_answer_key.py` from Step 3 now (before Step 6). Otherwise leave `correctIndex: 0` as set by the LLM.
 
 **Step E** — Then continue to Step 6 (image mapping) and Step 7 (deploy).
+
+> ⚠️ **Scanned PDFs: Do NOT attempt to hardcode image bounding boxes.**
+>
+> On a scanned page, multiple questions share the same page image. It is tempting to use `fitz.Rect` to crop a precise bounding box around a diagram, but this is **extremely fragile** — pixel offsets vary between PDFs, and even small mistakes cut off axis labels, answer text, or part of the diagram itself.
+>
+> **Recommended approach for scanned image questions:**
+> 1. Export the **entire page** as a high-resolution image with `page.get_pixmap(dpi=150)`.
+> 2. Reference that full-page image in `questions.json` (`"image": "images/page7_full.png"`).
+> 3. Inject **[Cropper.js](https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.6.1/cropper.min.js)** into the web app and add a "Crop Image" button below each question image.
+> 4. When clicked, open the full page in a modal where the user draws their own crop box. Use HTML5 Canvas to replace the full-page image with their precise crop.
+>
+> This approach is more robust than any automated script because the user sees exactly what they are cropping and can adjust in real time. The crop is stored in memory (JavaScript object) for the duration of the session. See `test_4/` for a complete working implementation.
 
 Trade-offs:
 - Handles tables perfectly, no RTL issues, no manual patching
