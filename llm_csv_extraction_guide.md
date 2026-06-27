@@ -18,7 +18,9 @@ Find the row containing the column headers. Look for columns labeled `שאלה 1
 * Note the total number of questions based on the highest `שאלה X` column.
 
 ### Step 3: Locate the Data Row
-Find the row directly beneath the column headers. This row contains the answer mappings for a specific exam version (e.g., Form `102`).
+Locate the target row by searching the first column (`שאלון`) for the requested Questionnaire ID / Test form number (e.g., `63` or `102`). Do not assume the target is always the row directly beneath the column headers, as the CSV file may contain answers for many students or versions.
+
+* **Encoding Tip:** When reading the CSV file programmatically, ensure you use the correct encoding (typically `utf-8` or `utf-8-sig` to handle Hebrew characters and byte-order marks properly).
 
 ### Step 4: Parse the Cell Values
 Iterate through the columns corresponding to the questions (`שאלה 1` to `שאלה N`). The standard cell format looks like this:
@@ -48,4 +50,5 @@ Map the question numbers (derived from the column headers, 1 to N) to the extrac
 ```
 
 ### Step 7: Save the File
-Write the constructed JSON object to `answers.json` so it can easily be loaded into HTML/JavaScript applications.
+Write the constructed JSON object to `answers.json` (typically in the same directory as the source CSV) so it can easily be loaded into HTML/JavaScript applications.
+
