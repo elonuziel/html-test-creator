@@ -212,7 +212,11 @@ document.addEventListener('DOMContentLoaded', () => {
 
             const answer = userAnswers[i];
             if (answer) {
-                btn.classList.add(answer.isCorrect ? 'answered-correct' : 'answered-wrong');
+                if (isImmediateFeedback) {
+                    btn.classList.add(answer.isCorrect ? 'answered-correct' : 'answered-wrong');
+                } else {
+                    btn.classList.add('answered-neutral');
+                }
             }
             if (i === currentQuestionIndex) {
                 btn.classList.add('current');

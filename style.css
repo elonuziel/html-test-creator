@@ -362,6 +362,12 @@ input:checked + .slider:before {
     color: var(--error-color);
 }
 
+.jump-btn.answered-neutral {
+    border-color: var(--primary-color);
+    background: var(--option-selected);
+    color: var(--primary-color);
+}
+
 /* ── Progress Bar ────────────────────────────────────────────────────────── */
 .progress-container {
     width: 100%;
