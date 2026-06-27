@@ -1,7 +1,6 @@
 document.addEventListener('DOMContentLoaded', () => {
     const STORAGE = {
-        theme: 'theme',
-        apiKey: 'quiz_generator_gemini_api_key'
+        theme: 'theme'
     };
 
     const EMBEDDED_KEY = {
@@ -30,10 +29,6 @@ document.addEventListener('DOMContentLoaded', () => {
         themeIcon: document.getElementById('theme-icon')
     };
 
-    if (window.pdfjsLib?.GlobalWorkerOptions) {
-        window.pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.5.136/pdf.worker.min.js';
-    }
-
     let theme = localStorage.getItem(STORAGE.theme) || 'light';
 
     function setTheme(nextTheme) {
@@ -49,15 +44,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
     setTheme(theme);
     elements.themeToggle.addEventListener('click', () => setTheme(theme === 'light' ? 'dark' : 'light'));
-
-    const storedApiKey = localStorage.getItem(STORAGE.apiKey);
-    if (storedApiKey) {
-        elements.apiKey.value = storedApiKey;
-    }
-
-    elements.apiKey.addEventListener('input', () => {
-        localStorage.setItem(STORAGE.apiKey, elements.apiKey.value.trim());
-    });
 
     function setStatus(message, isError = false) {
         elements.status.textContent = message;
@@ -510,7 +496,6 @@ document.addEventListener('DOMContentLoaded', () => {
             apiKey = await decryptEmbeddedApiKey(elements.passcode.value.trim());
             if (apiKey) {
                 elements.apiKey.value = apiKey;
-                localStorage.setItem(STORAGE.apiKey, apiKey);
             }
         }
 
