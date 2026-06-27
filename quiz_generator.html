@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>יוצר מבחן אינטראקטיבי</title>
+    <link rel="stylesheet" href="style.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Rubik:wght@400;500;700&display=swap" rel="stylesheet">
+    <script type="module">
+        import * as pdfjsLib from './vendor/pdfjs/pdf.min.mjs';
+        pdfjsLib.GlobalWorkerOptions.workerSrc = './vendor/pdfjs/pdf.worker.min.mjs';
+        window.pdfjsLib = pdfjsLib;
+    </script>
+    <style>
+        body { min-height: 100vh; }
+        .builder-container {
+            max-width: 1120px;
+            margin: 0 auto;
+            padding: 24px 16px 48px;
+        }
+        .builder-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 16px;
+        }
+        .builder-card {
+            background: var(--card-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 16px;
+            padding: 16px;
+            box-shadow: var(--shadow-sm);
+        }
+        .builder-card h2 {
+            margin: 0 0 10px;
+            font-size: 1.1rem;
+        }
+        .field {
+            display: grid;
+            gap: 6px;
+            margin-bottom: 12px;
+        }
+        .field input, .field textarea {
+            background: var(--input-bg);
+            color: var(--text-primary);
+            border: 1px solid var(--border-color);
+            border-radius: 10px;
+            padding: 10px;
+            font: inherit;
+            width: 100%;
+        }
+        .actions {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            margin-top: 8px;
+        }
+        .status {
+            margin-top: 8px;
+            padding: 10px;
+            border-radius: 10px;
+            background: var(--input-bg);
+            border: 1px solid var(--border-color);
+            white-space: pre-wrap;
+        }
+        .preview-list {
+            display: grid;
+            gap: 12px;
+        }
+        .question-card {
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 12px;
+            background: var(--input-bg);
+            display: grid;
+            gap: 8px;
+        }
+        .question-card .row {
+            display: grid;
+            grid-template-columns: 92px 1fr;
+            gap: 10px;
+            align-items: center;
+        }
+        .question-card .row label {
+            font-weight: 500;
+            font-size: .9rem;
+        }
+        .question-card .option-row {
+            display: grid;
+            grid-template-columns: 24px 1fr;
+            gap: 8px;
+            align-items: center;
+        }
+        .question-card textarea {
+            min-height: 48px;
+            resize: vertical;
+        }
+        .muted { opacity: .85; font-size: .92rem; }
+        @media (max-width: 640px) {
+            .question-card .row { grid-template-columns: 1fr; }
+        }
+    </style>
+</head>
+<body>
+<header class="navbar">
+    <div class="logo">יוצר מבחן אינטראקטיבי</div>
+    <div class="controls">
+        <button id="theme-toggle" class="icon-btn" aria-label="Toggle theme">
+            <svg id="theme-icon" xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></svg>
+        </button>
+    </div>
+</header>
+
+<main class="builder-container">
+    <div class="builder-grid">
+        <section class="builder-card">
+            <h2>קבצי מקור</h2>
+            <div class="field">
+                <label for="pdf-file">קובץ PDF</label>
+                <input id="pdf-file" type="file" accept="application/pdf">
+            </div>
+            <div class="field">
+                <label for="csv-file">קובץ CSV תשובות</label>
+                <input id="csv-file" type="file" accept=".csv,text/csv">
+            </div>
+            <div class="field">
+                <label for="form-number">מספר שאלון</label>
+                <input id="form-number" type="text" inputmode="numeric" placeholder="לדוגמה: 76">
+            </div>
+            <div class="field">
+                <label for="api-key">Gemini API Key (אופציונלי)</label>
+                <input id="api-key" type="password" autocomplete="off" placeholder="AIza...">
+            </div>
+            <div class="field">
+                <label for="passcode">Passcode לפענוח מפתח מוצפן (אופציונלי)</label>
+                <input id="passcode" type="password" autocomplete="off" placeholder="הזן סיסמה משותפת">
+            </div>
+            <div class="actions">
+                <button id="run-parse" class="primary-btn">Run Parse</button>
+                <button id="download-quiz" class="success-btn" disabled>Download Self-Contained Quiz</button>
+                <button id="take-quiz" class="secondary-btn" disabled>Take Quiz Now</button>
+            </div>
+            <div id="status" class="status muted">מוכן להתחלה.</div>
+        </section>
+
+        <section class="builder-card">
+            <h2>תצוגה מקדימה ועריכה</h2>
+            <p class="muted">לאחר Run Parse ניתן לערוך טקסט/תשובות לפני ייצוא.</p>
+            <div id="preview" class="preview-list"></div>
+        </section>
+    </div>
+</main>
+
+<script src="generator.js"></script>
+</body>
+</html>
