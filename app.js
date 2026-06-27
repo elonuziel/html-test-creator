@@ -33,6 +33,14 @@ document.addEventListener('DOMContentLoaded', () => {
     const zoomOverlay       = document.getElementById('zoom-overlay');
     const zoomImg           = document.getElementById('zoom-img');
 
+    // Cropper Elements
+    const openCropperBtn    = document.getElementById('open-cropper-btn');
+    const cropperModal      = document.getElementById('cropper-modal');
+    const closeCropperBtn   = document.getElementById('close-cropper-btn');
+    const confirmCropBtn    = document.getElementById('confirm-crop-btn');
+    const cropperImage      = document.getElementById('cropper-image');
+    let cropperInstance     = null;
+    let croppedImages       = {}; // Store crop data URLs per full image path
     const themeToggle    = document.getElementById('theme-toggle');
     const feedbackToggle = document.getElementById('immediate-feedback-toggle');
     const themeIcon      = document.getElementById('theme-icon');
@@ -228,11 +236,20 @@ document.addEventListener('DOMContentLoaded', () => {
 
         // Image
         if (q.image) {
-            questionImage.src = q.image;
+            // Check if user has already cropped this image
+            if (croppedImages[q.image]) {
+                questionImage.src = croppedImages[q.image];
+            } else {
+                questionImage.src = q.image;
+            }
+            questionImage.dataset.fullSrc = q.image;
             questionImage.classList.remove('hidden');
+            openCropperBtn.classList.remove('hidden');
         } else {
             questionImage.classList.add('hidden');
+            openCropperBtn.classList.add('hidden');
             questionImage.src = '';
+            questionImage.dataset.fullSrc = '';
         }
 
         // Progress bar
@@ -380,5 +397,62 @@ document.addEventListener('DOMContentLoaded', () => {
                 `<p style="text-align:center;color:var(--text-secondary);padding:2rem;">אין שאלות להצגה בסינון זה.</p>`;
         }
     }
+
+    // ── Cropper Logic ─────────────────────────────────────────────────────────
+    openCropperBtn.addEventListener('click', () => {
+        const fullSrc = questionImage.dataset.fullSrc;
+        if (!fullSrc) return;
+
+        cropperImage.src = fullSrc;
+        cropperModal.classList.remove('hidden');
+        document.body.style.overflow = 'hidden';
+
+        // Initialize Cropper when image is loaded
+        cropperImage.onload = () => {
+            if (cropperInstance) cropperInstance.destroy();
+            cropperInstance = new Cropper(cropperImage, {
+                viewMode: 1,
+                dragMode: 'crop',
+                autoCropArea: 0.5,
+                restore: false,
+                guides: true,
+                center: true,
+                highlight: false,
+                cropBoxMovable: true,
+                cropBoxResizable: true,
+                toggleDragModeOnDblclick: false,
+            });
+        };
+    });
+
+    function closeCropper() {
+        cropperModal.classList.add('hidden');
+        document.body.style.overflow = '';
+        if (cropperInstance) {
+            cropperInstance.destroy();
+            cropperInstance = null;
+        }
+    }
+
+    closeCropperBtn.addEventListener('click', closeCropper);
+
+    confirmCropBtn.addEventListener('click', () => {
+        if (!cropperInstance) return;
+        
+        // Get the cropped canvas
+        const canvas = cropperInstance.getCroppedCanvas();
+        if (canvas) {
+            const dataUrl = canvas.toDataURL('image/png');
+            const fullSrc = questionImage.dataset.fullSrc;
+            
+            // Save crop for this image
+            croppedImages[fullSrc] = dataUrl;
+            
+            // Update UI
+            questionImage.src = dataUrl;
+        }
+        
+        closeCropper();
+    });
 
 });

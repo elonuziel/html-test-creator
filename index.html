@@ -5,6 +5,9 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>מבחן אינטראקטיבי</title>
     <link rel="stylesheet" href="style.css">
+    <!-- Cropper.js -->
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.6.1/cropper.min.css" rel="stylesheet">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.6.1/cropper.min.js"></script>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Rubik:wght@400;500;700&display=swap" rel="stylesheet">
@@ -59,6 +62,7 @@
 
                 <div class="question-container">
                     <h2 id="question-text">טוען שאלה...</h2>
+                    <button id="open-cropper-btn" class="secondary-btn hidden" style="margin-bottom: 10px; width: 100%;">חתוך תמונה לנוחותך</button>
                     <img id="question-image" src="" alt="תמונה לשאלה" class="hidden" title="לחץ להגדלה">
                     <div id="options-container" class="options-list">
                         <!-- Options injected here -->
@@ -111,6 +115,22 @@
         <p class="zoom-hint">לחץ בכל מקום לסגירה &nbsp;·&nbsp; ESC</p>
     </div>
 
-    <script src="app.js"></script>
+    <!-- CROPPER MODAL -->
+  <div id="cropper-modal" class="modal-overlay hidden">
+    <div class="cropper-container">
+      <div class="cropper-header">
+        <h3>חתוך את התמונה</h3>
+        <button id="close-cropper-btn" class="close-btn">&times;</button>
+      </div>
+      <div class="cropper-body">
+        <img id="cropper-image" src="" alt="Cropper target">
+      </div>
+      <div class="cropper-footer">
+        <button id="confirm-crop-btn" class="btn primary-btn">שמור חיתוך</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
 </body>
 </html>
