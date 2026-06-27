@@ -1,6 +1,6 @@
-﻿# Complete Guide: Hebrew PDF Exam → Interactive HTML Quiz
+# Complete Guide: Hebrew PDF Exam → Interactive HTML Quiz
 
-This guide is a **battle-tested runbook** built from two real conversion projects (`project_files/` and `test_2/`). It documents every script, every pitfall, and the exact workflow to go from a raw Hebrew PDF to a working interactive quiz with images, dark mode, and answer shuffling.
+This guide is a **battle-tested runbook** built from three real conversion projects (`project_files/`, `test_2/`, and `test_3/`). It documents every script, every pitfall, and the exact workflow to go from a raw Hebrew PDF to a working interactive quiz with images, dark mode, and answer shuffling.
 
 Hand this document to an AI agent at the start of a new project for a fast, reliable execution.
 
@@ -11,6 +11,9 @@ Hand this document to an AI agent at the start of a new project for a fast, reli
 For repeat use — tick each step off as you go. Full details in Part 1.
 
 - [ ] Copy `index.html`, `style.css`, `app.js` from the repo root into the new exam folder
+- [ ] **Run `detect_pdf_type.py`** — determines if the PDF is digital or scanned (see Step 0)
+  - If **digital** → follow Steps 1–7 below
+  - If **scanned** → skip to **Part 4 (Vision LLM path)** directly
 - [ ] Run `extract_images.py` — note which image belongs to which question
 - [ ] **Ask the user**: "How are correct answers indicated in this PDF?" (see Step 3)
 - [ ] Run `extract_text_fitz.py` → inspect the output `.md` file
@@ -18,7 +21,7 @@ For repeat use — tick each step off as you go. Full details in Part 1.
 - [ ] Run `check_json.py` — fix any issues found
 - [ ] Run `dump_problem_qs.py` for each broken question → patch with `fix_json.py`
 - [ ] Run `find_img.py` → run `add_images.py` to map images
-- [ ] Run `python -m http.server 8000` **from inside the exam folder** and verify in browser
+- [ ] Double-click `run_quiz.bat` (or `python -m http.server 8000` **from inside the exam folder**) and verify in browser
 - [ ] Ctrl+Shift+R (hard refresh) if questions.json looks stale in the browser
 
 ---
@@ -39,9 +42,48 @@ pip install pymupdf markitdown
 
 ## Part 1: The Canonical 7-Step Workflow
 
+### Step 0 — Detect PDF Type (Digital vs Scanned)
+
+**Do this first — it determines your entire workflow.** A scanned PDF contains only rasterised page images with no extractable text. Running `fitz.get_text()` on it produces an empty string, and the output Markdown will be blank. The script reports "Extracted to file.md" successfully but the file is just empty lines — there is no error message to warn you.
+
+```python
+# detect_pdf_type.py
+import fitz, sys
+
+if hasattr(sys.stdout, 'reconfigure'):
+    sys.stdout.reconfigure(encoding='utf-8')
+
+PDF_FILE = "your_exam.pdf"   # <-- change this
+SAMPLE_PAGES = 3             # pages to check (first N pages)
+MIN_CHARS_PER_PAGE = 50      # threshold: fewer chars → treat as scanned
+
+doc = fitz.open(PDF_FILE)
+total_chars = 0
+pages_checked = min(SAMPLE_PAGES, len(doc))
+
+for i in range(pages_checked):
+    text = doc[i].get_text().strip()
+    total_chars += len(text)
+
+avg = total_chars / pages_checked
+if avg < MIN_CHARS_PER_PAGE:
+    print(f"SCANNED PDF detected (avg {avg:.0f} chars/page). Use Part 4 (Vision LLM path).")
+else:
+    print(f"DIGITAL PDF detected (avg {avg:.0f} chars/page). Use the standard Steps 1–7.")
+```
+
+> **If SCANNED**: Stop here and go directly to **Part 4**. The Vision LLM path handles scanned PDFs completely — it renders pages as images and extracts all text via a multimodal model. Steps 1–5 will produce empty or garbage output on a scanned PDF.
+>
+> **If DIGITAL**: Continue with Step 1 below.
+
+---
+
 ### Step 1 — Extract Embedded Images First
 
 **Do this before any text work.** PDF images live at the `xref` level, not tied to text position. Run this script immediately:
+
+> ⚠️ **Scanned PDFs behave differently here.** `get_page_images()` extracts images embedded *within* the PDF at the `xref` level. For a **digital PDF**, this yields individual charts and figures. For a **scanned PDF**, it returns one large rasterised image per page (the scan itself) — not individual figures. If you see one image per page with identical dimensions matching the page size, you have a scanned PDF — stop and switch to Part 4.
+
 
 ```python
 # extract_images.py
@@ -402,7 +444,20 @@ print("Images mapped.")
 
 Copy `index.html`, `style.css`, and `app.js` from a previous project into the new folder. No code changes needed — they read `questions.json` automatically.
 
-Start a local server to test:
+#### Option A — Double-click launcher (recommended)
+
+Create a `run_quiz.bat` file inside the exam folder. **Use a unique port for each exam folder** to avoid collisions with other running servers:
+
+```bat
+@echo off
+echo Starting local web server...
+start http://localhost:8001
+python -m http.server 8001
+```
+
+> ⚠️ **Port collision is a silent failure.** If another server is already running on your chosen port, the new one silently fails to start. The browser still opens — but it connects to the *other* server and serves the wrong `questions.json`. The quiz shows "שאלה 1 מתוך 0" or the wrong questions. **Prevention**: assign a different port number to every exam subfolder (`8001` for the first, `8002` for the second, etc.) and write it permanently in that folder's `run_quiz.bat`.
+
+#### Option B — Manual
 
 ```powershell
 python -m http.server 8000
@@ -410,6 +465,16 @@ python -m http.server 8000
 ```
 
 App features: RTL layout, immediate feedback toggle, answer shuffling, dark/light mode, score screen with conic-gradient circle, full review list.
+
+#### Cache-busting in `app.js`
+
+The app fetches `questions.json` on startup. If the browser has cached a previous (empty or wrong) version of the file, the quiz will show "שאלה 1 מתוך 0" even after the file is fixed. The root-folder `app.js` template already includes a timestamp query parameter to prevent this:
+
+```javascript
+fetch('questions.json?v=' + new Date().getTime())
+```
+
+If you copy `app.js` from an older project that lacks this line, add it. Hard-refreshing (`Ctrl+Shift+R`) is a manual alternative but less reliable than the code fix.
 
 ---
 
@@ -447,12 +512,15 @@ your_exam_folder/
 
 ## Common Mistakes
 
-These are the top errors seen across both real projects. Check this list before debugging.
+These are the top errors seen across all real projects. Check this list before debugging.
 
 | Mistake | Symptom | Fix |
 |---|---|---|
+| Skipping Step 0 on a scanned PDF | `extract_text_fitz.py` produces an empty `.md` file; `parse_questions.py` yields 0 questions | Run `detect_pdf_type.py` first — if scanned, go to Part 4 immediately |
 | Running `python -m http.server` from the wrong directory | Browser shows 404 for `questions.json` | `cd` into the exam folder first, then run the server |
-| Browser caching stale `questions.json` | Changes to the JSON don't appear | Press **Ctrl+Shift+R** (hard refresh) or open in a private/incognito tab |
+| Port already in use by another exam's server | Browser opens but shows 0 questions or wrong questions | Use a unique port per exam folder — see Step 7, Option A |
+| Browser caching stale `questions.json` | Changes to the JSON don't appear | Ensure `app.js` uses the `?v=timestamp` cache-bust fetch; or press **Ctrl+Shift+R** |
+| Running `get_page_images()` on a scanned PDF | One large full-page image per page instead of individual charts | Scanned PDFs embed page scans as a single image; use `get_pixmap()` + LLM crop instead |
 | Using character reversal (`[::-1]`) on PyMuPDF output | Hebrew text looks correct but words are in wrong order | PyMuPDF needs **word-order** reversal, not character reversal — see Part 3 §2 |
 | Forgetting `sys.stdout.reconfigure(encoding='utf-8')` | `UnicodeEncodeError` when printing Hebrew | Add to the top of every Python script that prints Hebrew text |
 | Answer letter `א.` on its own line | First option is empty in `questions.json` | The parser handles this with the `pop()` edge case — verify your parser has it |
@@ -553,11 +621,40 @@ From two real projects (~35 questions each), expect 5–10 questions with extrac
 
 `check_json.py` catches wrong option counts. Empty options and bad question text require manually reading the raw dump for that specific question number.
 
+### 9. Scanned PDFs: `get_text()` Returns Empty String Without Warning (test_3)
+
+`fitz.get_text()` returns an empty string for scanned PDFs, and the extraction script still exits successfully — it just writes a blank Markdown file. There is no error. The symptom only appears later when `parse_questions.py` reports "Parsed 0 questions".
+
+**Root cause**: The file had no digital text layer — it was a camera/scanner image of exam pages embedded in a PDF wrapper.
+
+**Better fix**: Run `detect_pdf_type.py` (Step 0) first. If average characters per page < 50, abort and go to Part 4 immediately. Do not let the pipeline continue past Step 0 on a scanned PDF.
+
+### 10. Port Collision Causes Silent Wrong-Folder Serving (test_3)
+
+A `python -m http.server 8000` process was already running in the repo root. When `run_quiz.bat` (for `test_3/`) tried to bind to port 8000, the OS silently rejected the bind — no error printed. The browser opened `http://localhost:8000` and hit the *root folder's* server, which served the root's `questions.json` (empty at the time). The quiz showed "שאלה 1 מתוך 0".
+
+**Why it's hard to debug**: Both symptoms (empty `questions.json` and wrong-port serving) produce identical UI — "0 questions". There is no visible indication of which problem you have.
+
+**Better fix**: Assign a unique port per exam subfolder and hardcode it in `run_quiz.bat`. The root folder uses 8000; subfolders use 8001, 8002, 8003, etc. This is a one-time decision — write it in `run_quiz.bat` and never change it.
+
+### 11. Browser Caches Empty `questions.json` Permanently (test_3)
+
+The first pipeline run wrote an empty `questions.json` (0 questions array). The browser cached it. After the file was corrected, `Ctrl+Shift+R` partially helped but was not fully reliable. The permanent fix is the `?v=timestamp` cache-bust in `app.js`:
+
+```javascript
+fetch('questions.json?v=' + new Date().getTime())
+```
+
+This forces a fresh request on every page load. The root-folder `app.js` template now includes this. Older copies of `app.js` in `project_files/` and `test_2/` do **not** have this line — update them if you reuse those copies.
+
 ---
 
-## Part 4: The Vision LLM Alternative (Skips Steps 2–5)
 
-For PDFs with complex tables or heavy mixed RTL/LTR content, use a multimodal LLM instead:
+## Part 4: The Vision LLM Alternative (Mandatory for Scanned PDFs; Optional for Digital)
+
+Use this path when:
+- The PDF is **scanned** (Step 0 detected it), OR
+- The PDF has complex tables or heavy mixed RTL/LTR content that trips up the text parser
 
 **Step A** — Render PDF pages as images:
 ```python
@@ -567,7 +664,10 @@ import os; os.makedirs("pages", exist_ok=True)
 for i, page in enumerate(doc):
     pix = page.get_pixmap(dpi=150)
     pix.save(f"pages/page_{i+1}.png")
+print(f"Rendered {len(doc)} pages.")
 ```
+
+> **`get_pixmap()` vs `get_page_images()`**: `get_page_images()` extracts images embedded *within the PDF data stream* at the `xref` level. For a scanned PDF, this means one big page scan per page — not individual charts. `get_pixmap()` renders the visible page as it appears on screen at a configurable DPI. **Always use `get_pixmap()` for the Vision LLM path**, regardless of whether the PDF is digital or scanned.
 
 **Step B** — Pass each page image to Gemini 1.5 Pro (or similar) with this prompt:
 
@@ -693,4 +793,4 @@ These improvements are recommended for future versions, ordered by impact vs. ef
 
 ---
 
-*Last updated: 2026-06-27. Built from two real Litoral oceanography exam projects.*
+*Last updated: 2026-06-27. Built from three real Litoral oceanography exam projects (`project_files/`, `test_2/`, `test_3/`).*
