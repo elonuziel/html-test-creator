@@ -29,7 +29,7 @@ jobs:
       - name: Prepare site artifact
         run: |
           mkdir -p site
-          cp index.html app.js style.css site/
+          cp index.html app.js style.css quiz_generator.html generator.js site/
           if [ -d vendor ]; then
             cp -R vendor site/vendor
           fi
