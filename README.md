@@ -1,5 +1,7 @@
 # Interactive Hebrew Quiz & Study Guides
 
+> **🚀 Try the Generator Now:** The Quiz Generator is live at [https://elonuziel.github.io/html-test-creator/quiz_generator.html](https://elonuziel.github.io/html-test-creator/quiz_generator.html)
+
 This repository contains a modern, interactive web-based quiz application tailored for Hebrew (RTL support) along with guides for study material processing.
 
 ## 🚀 Interactive Quiz Application
