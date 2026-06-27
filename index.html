@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>מבחן אינטראקטיבי</title>
+    <link rel="stylesheet" href="style.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Rubik:wght@400;500;700&display=swap" rel="stylesheet">
+</head>
+<body>
+    <header class="navbar">
+        <div class="logo">מבחן אינטראקטיבי</div>
+        <div class="controls">
+            <label class="toggle">
+                <span class="toggle-label">משוב מיידי</span>
+                <div class="toggle-wrapper">
+                    <input type="checkbox" id="immediate-feedback-toggle">
+                    <span class="slider"></span>
+                </div>
+            </label>
+            <button id="theme-toggle" class="icon-btn" aria-label="Toggle theme">
+                <svg id="theme-icon" xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path></svg>
+            </button>
+        </div>
+    </header>
+
+    <main class="container">
+        <!-- Setup Screen -->
+        <div id="setup-screen" class="screen active">
+            <div class="welcome-card">
+                <h1>מוכנים להתחיל?</h1>
+                <p>השאלות נטענו בהצלחה. סדר התשובות מעורבב בכל שאלה.</p>
+                <div id="resume-notice" class="resume-notice hidden">
+                    <span>נמצא מפגש קודם שלא הושלם.</span>
+                    <button id="resume-btn" class="secondary-btn">המשך מהיכן שהפסקת</button>
+                </div>
+                <div class="start-actions">
+                    <button id="start-btn" class="primary-btn lg-btn">התחל מבחן חדש</button>
+                </div>
+                <p class="keyboard-hint">ניווט מקלדת: מקשים 1–4 לבחירת תשובה · ← → לניווט בין שאלות · Esc לסגירת זום</p>
+            </div>
+        </div>
+
+        <!-- Quiz Screen -->
+        <div id="quiz-screen" class="screen">
+            <!-- Question Jump Bar -->
+            <div id="question-jump-bar" class="jump-bar" aria-label="ניווט מהיר בין שאלות"></div>
+
+            <div class="progress-container">
+                <div class="progress-bar" id="progress-bar"></div>
+            </div>
+
+            <div class="quiz-card">
+                <div class="question-header">
+                    <span id="question-counter" class="badge">שאלה 1 מתוך X</span>
+                </div>
+
+                <div class="question-container">
+                    <h2 id="question-text">טוען שאלה...</h2>
+                    <img id="question-image" src="" alt="תמונה לשאלה" class="hidden" title="לחץ להגדלה">
+                    <div id="options-container" class="options-list">
+                        <!-- Options injected here -->
+                    </div>
+                </div>
+
+                <div id="feedback-message" class="feedback-message hidden">
+                    <!-- Correct/Incorrect message injected here -->
+                </div>
+
+                <div class="navigation">
+                    <button id="prev-btn" class="secondary-btn" disabled>הקודם</button>
+                    <button id="next-btn" class="primary-btn">הבא</button>
+                    <button id="submit-btn" class="success-btn hidden">סיום מבחן</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Results Screen -->
+        <div id="results-screen" class="screen">
+            <div class="results-header">
+                <h1>תוצאות המבחן</h1>
+                <div class="score-card">
+                    <div class="score-circle">
+                        <span id="final-score">0%</span>
+                    </div>
+                    <p id="score-text">ענית נכונה על 0 מתוך 0 שאלות.</p>
+                </div>
+                <button id="restart-btn" class="primary-btn">התחל מחדש</button>
+            </div>
+
+            <h2 class="review-title">סקירת תשובות</h2>
+
+            <!-- Review Filter Buttons -->
+            <div class="review-filters">
+                <button class="filter-btn active" data-filter="all">הכל</button>
+                <button class="filter-btn" data-filter="wrong">שגויות בלבד</button>
+                <button class="filter-btn" data-filter="unanswered">לא נענו</button>
+            </div>
+
+            <div id="review-container" class="review-list">
+                <!-- Review items injected here -->
+            </div>
+        </div>
+    </main>
+
+    <!-- Image Zoom Overlay -->
+    <div id="zoom-overlay" class="zoom-overlay hidden" role="dialog" aria-label="תמונה מוגדלת">
+        <img id="zoom-img" src="" alt="תמונה מוגדלת">
+        <p class="zoom-hint">לחץ בכל מקום לסגירה &nbsp;·&nbsp; ESC</p>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>
