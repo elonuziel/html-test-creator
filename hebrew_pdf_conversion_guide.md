@@ -18,6 +18,7 @@ Standard OCR and text extraction (`markitdown`, `PyPDF2`) fail spectacularly on 
 - **Action**: Pass the raw PDF pages as images to a multi-modal Vision LLM (like Gemini 1.5 Pro).
 - **Prompt**: *"Extract all questions, multiple-choice options, and tables from this image into a structured JSON array. Keep the Hebrew text in standard logical RTL format. If there is a table, convert it into an HTML table. Return ONLY the JSON."*
 - **Result**: You will get a perfectly structured `questions.json` without having to manually reverse text strings or patch broken tables.
+- **Fallback Note**: If you must use `markitdown`, be prepared to write a Python script that reverses visual RTL lines (while preserving English blocks via Regex) and manually patch missing/dropped text in the JSON afterward, as `markitdown` frequently separates the option letter (e.g. `א.`) from its text or drops options entirely.
 
 ### Step 3: Match Images to Questions
 Write a Python script to scan the `questions.json` for keywords like `איור` (illustration), `גרף` (graph), or `תרשים` (diagram). Manually or automatically map the extracted images from Step 1 to the `image` field of the corresponding question objects in the JSON.
@@ -51,3 +52,8 @@ If you attempt to parse the PDF using standard text tools, you will encounter th
      - Multiple answer choices merge into the main question block.
      - Tables get completely jumbled into vertical, incoherent columns.
    - *Fix*: This is why **Step 2 (Vision LLM)** is highly recommended. If you must use text extraction, use `PyMuPDF`'s coordinate-based extraction (`fitz.get_page_text("dict")`) to map text chunks visually rather than sequentially.
+
+4. **Markitdown vs. PyMuPDF Extraction Behaviors**:
+   - *Problem*: Different tools extract Hebrew text in different directions, requiring completely different programmatic fixes.
+   - *Markitdown*: Extracts text in **Visual Order**. The line is backwards, so you must write a script to reverse the characters in the line `[::-1]` while preserving LTR blocks (English/Numbers). It also tends to completely drop text blocks randomly (e.g., entirely missing the options for a question).
+   - *PyMuPDF (`fitz`)*: Extracts text in **Logical Order**, but places the logical words in a visual, left-to-right alignment on the page line. For example: `":1 שאלה מספר"`. If you apply a standard string reversal script to this, you will break the words. Instead, you must split the string by spaces and reverse the *order of the words* on the line. However, PyMuPDF is much more reliable at actually capturing all the text on the page without dropping blocks.
