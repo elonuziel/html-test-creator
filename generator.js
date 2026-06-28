@@ -175,13 +175,13 @@ document.addEventListener('DOMContentLoaded', () => {
             pages.push(lineText);
             nonWhitespaceChars += lineText.replace(/\s/g, '').length;
 
-            // Detect if this page has embedded images via operator list
+            // Detect if this page has embedded images via operator list.
+            // Fallback to hardcoded PDF.js OPS values if .OPS is not exported.
             try {
                 const ops = await page.getOperatorList();
-                const hasPaintOp = ops.fnArray.some((fn) =>
-                    fn === window.pdfjsLib.OPS.paintImageXObject ||
-                    fn === window.pdfjsLib.OPS.paintInlineImageXObject
-                );
+                const PAINT_IMAGE = (window.pdfjsLib.OPS && window.pdfjsLib.OPS.paintImageXObject) || 85;
+                const PAINT_INLINE = (window.pdfjsLib.OPS && window.pdfjsLib.OPS.paintInlineImageXObject) || 86;
+                const hasPaintOp = ops.fnArray.some((fn) => fn === PAINT_IMAGE || fn === PAINT_INLINE);
                 pageImages.push(hasPaintOp ? await extractPageImage(page) : null);
             } catch {
                 pageImages.push(null);
@@ -257,17 +257,22 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function parseQuestionsFromText(text, rawPages, pageImages) {
         const lines = text.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
-        // Build a map: lineIndex -> pageIndex (so we can assign images by page)
-        const linePageMap = [];
+        // Build linePageMap from the same processed text that lines[] comes from.
+        // We apply fixHebrewWordOrder per page and count non-empty lines to match the filter(Boolean).
+        const filteredLinePageMap = [];
         if (rawPages && rawPages.length) {
-            let lineIdx = 0;
             rawPages.forEach((pageText, pageIdx) => {
-                const pageLineCount = pageText.split('\n').filter(Boolean).length || 1;
-                for (let i = 0; i < pageLineCount; i++) linePageMap[lineIdx++] = pageIdx;
+                const processedLines = fixHebrewWordOrder(pageText)
+                    .split('\n')
+                    .map(l => l.trim())
+                    .filter(Boolean);
+                for (let i = 0; i < processedLines.length; i++) {
+                    filteredLinePageMap.push(pageIdx);
+                }
             });
         }
-        // Matches: 'שאלה מספר 1:', 'שאלה מספר :1' (space before colon from PDF.js), 'שאלה 1:', '1.', '1)'
-        const qPattern = /(?:^|\s)(?:שאלה\s+(?:מספר\s+)?:?\d+\s*:?|שאלה\s+(?:מספר\s+)?\d+|:?\d+\s*:?\s*מספר\s+שאלה|:?\d+\s*:?\s*שאלה|\d+\s*[\.\)-]|[\.\)-]\s*\d+)(?:\s|$)/;
+        // Matches: 'שאלה מספר 1:', 'שאלה מספר :1', 'שאלה 1:', AND standalone lines like '1.' '1)' only at line start
+        const qPattern = /(?:שאלה\s+(?:מספר\s+)?:?\d+\s*:?|\d+\s*:?\s*מספר\s+שאלה|^\d+\s*[\.\)]\s|^\d+\s*-\s)/;
         // Matches: 'א. text', 'א . text' (space between letter and dot from PDF.js visual layout)
         const ansPatternStart = /^([אבגד1-4])\s*[\.]\s*(.*)$|^([אבגד1-4])[\)]\s*(.*)$/;
         const ansPatternEnd = /^(.*)\s+([אבגד1-4])\s*[\.\)]$/;
@@ -283,7 +288,8 @@ document.addEventListener('DOMContentLoaded', () => {
             current = null;
         }
 
-        for (const line of lines) {
+        for (let i = 0; i < lines.length; i++) {
+            const line = lines[i];
             if (!line || noisePattern.test(line) || line.includes('קוד מבחן') || line.includes("מבחן מס") || line.includes('מבחן מס')) {
                 continue;
             }
@@ -292,7 +298,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
             if (qPattern.test(line) || qPattern.test(reversedLine)) {
                 pushCurrent();
-                current = { text: [], answers: [], lineIdx: lines.indexOf(line) };
+                current = { text: [], answers: [], lineIdx: i }; // use i, not indexOf
                 stateMode = 1;
                 continue;
             }
@@ -343,7 +349,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
                 // Attach image if the question text suggests one and the page has an embedded image
                 if (pageImages && pageImages.length && imageKeywords.test(question)) {
-                    const pageIdx = linePageMap[q.lineIdx] ?? 0;
+                    const pageIdx = filteredLinePageMap[q.lineIdx] ?? 0;
                     // Search current page first, then adjacent pages
                     for (const pi of [pageIdx, pageIdx - 1, pageIdx + 1]) {
                         if (pi >= 0 && pi < pageImages.length && pageImages[pi]) {
