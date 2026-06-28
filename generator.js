@@ -231,9 +231,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function parseQuestionsFromText(text) {
         const lines = text.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
-        // Matches "שאלה מספר 1:", "שאלה 1:", "1.", "1)", or "1 -"
-        const qPattern = /^(?:שאלה\s+(?:מספר\s+)?\d+\s*:?|\d+\s*[\.\)-])/;
-        const ansPattern = /^([אבגד1-4])[\.\)]\s*(.*)$/;
+        const qPattern = /(?:^|\s)(?:שאלה\s+(?:מספר\s+)?\d+\s*:?|:?\d+\s*מספר\s+שאלה|:?\d+\s*שאלה|\d+\s*[\.\)-]|[\.\)-]\s*\d+)(?:\s|$)/;
+        const ansPatternStart = /^[\.]?([אבגד1-4])[\.\)]\s*(.*)$/;
+        const ansPatternEnd = /^(.*)\s+[\.]?([אבגד1-4])[\.\)]$/;
         const noisePattern = /^עמוד\s+\d+\s+מתוך\s+\d+$/;
 
         const rawQuestions = [];
@@ -251,7 +251,9 @@ document.addEventListener('DOMContentLoaded', () => {
                 continue;
             }
 
-            if (qPattern.test(line)) {
+            const reversedLine = line.split(/\s+/).reverse().join(' ');
+
+            if (qPattern.test(line) || qPattern.test(reversedLine)) {
                 pushCurrent();
                 current = { text: [], answers: [] };
                 stateMode = 1;
@@ -262,11 +264,16 @@ document.addEventListener('DOMContentLoaded', () => {
                 continue;
             }
 
-            const ansMatch = line.match(ansPattern);
-            if (ansMatch) {
+            let match = line.match(ansPatternStart) || reversedLine.match(ansPatternStart);
+            let endMatch = line.match(ansPatternEnd) || reversedLine.match(ansPatternEnd);
+
+            if (match || endMatch) {
                 stateMode = 2;
-                const letter = ansMatch[1];
-                let answerText = ansMatch[2].trim();
+                let letter = match ? match[1] : endMatch[2];
+                let answerText = match ? match[2] : endMatch[1];
+                
+                answerText = (answerText || '').trim();
+                
                 if ((letter === 'א' || letter === '1') && !answerText && current.text.length > 0) {
                     answerText = current.text.pop();
                 }
