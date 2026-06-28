@@ -165,7 +165,6 @@ document.addEventListener('DOMContentLoaded', () => {
         const loadingTask = window.pdfjsLib.getDocument({ data: arrayBuffer });
         const pdf = await loadingTask.promise;
         const pages = [];
-        const pageImages = []; // index = pageNumber-1, value = base64 data URL or null
         let nonWhitespaceChars = 0;
 
         for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber++) {
@@ -174,26 +173,13 @@ document.addEventListener('DOMContentLoaded', () => {
             const lineText = groupPdfTextItemsToLines(textContent.items).join('\n');
             pages.push(lineText);
             nonWhitespaceChars += lineText.replace(/\s/g, '').length;
-
-            // Detect if this page has embedded images via operator list.
-            // Fallback to hardcoded PDF.js OPS values if .OPS is not exported.
-            try {
-                const ops = await page.getOperatorList();
-                const PAINT_IMAGE = (window.pdfjsLib.OPS && window.pdfjsLib.OPS.paintImageXObject) || 85;
-                const PAINT_INLINE = (window.pdfjsLib.OPS && window.pdfjsLib.OPS.paintInlineImageXObject) || 86;
-                const hasPaintOp = ops.fnArray.some((fn) => fn === PAINT_IMAGE || fn === PAINT_INLINE);
-                pageImages.push(hasPaintOp ? await extractPageImage(page) : null);
-            } catch {
-                pageImages.push(null);
-            }
         }
 
         return {
             pdf,
-            pageImages,
             isScanned: nonWhitespaceChars < Math.max(pdf.numPages * 60, 120),
             text: fixHebrewWordOrder(pages.join('\n')),
-            rawPages: pages // preserve per-page text for image association
+            rawPages: pages
         };
     }
 
@@ -255,7 +241,7 @@ document.addEventListener('DOMContentLoaded', () => {
         return pages.join('\n');
     }
 
-    function parseQuestionsFromText(text, rawPages, pageImages) {
+    function parseQuestionsFromText(text, rawPages) {
         const lines = text.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
         // Build linePageMap from the same processed text that lines[] comes from.
         // We apply fixHebrewWordOrder per page and count non-empty lines to match the filter(Boolean).
@@ -347,16 +333,9 @@ document.addEventListener('DOMContentLoaded', () => {
                 const options = q.answers.map((a) => normalizeWhitespace(a.text.join(' '))).filter(Boolean);
                 const obj = { question, options, correctIndex: 0 };
 
-                // Attach image if the question text suggests one and the page has an embedded image
-                if (pageImages && pageImages.length && imageKeywords.test(question)) {
-                    const pageIdx = filteredLinePageMap[q.lineIdx] ?? 0;
-                    // Search current page first, then adjacent pages
-                    for (const pi of [pageIdx, pageIdx - 1, pageIdx + 1]) {
-                        if (pi >= 0 && pi < pageImages.length && pageImages[pi]) {
-                            obj.image = pageImages[pi];
-                            break;
-                        }
-                    }
+                // Store page index for later on-demand image rendering in runParse
+                if (imageKeywords.test(question)) {
+                    obj._pageIdx = filteredLinePageMap[q.lineIdx] ?? 0;
                 }
 
                 return obj;
@@ -613,7 +592,28 @@ document.addEventListener('DOMContentLoaded', () => {
             examText = fixHebrewWordOrder(examText);
         }
 
-        let parsedQuestions = parseQuestionsFromText(examText, extracted.rawPages, extracted.pageImages);
+        let parsedQuestions = parseQuestionsFromText(examText, extracted.rawPages);
+
+        // Render pages on-demand for questions that have image keywords
+        const questionsNeedingImages = parsedQuestions.filter((q) => q._pageIdx !== undefined);
+        if (questionsNeedingImages.length) {
+            setStatus(`מחלץ תמונות עבור ${questionsNeedingImages.length} שאלות...`);
+            // Render each unique page only once, then assign to all questions on that page
+            const renderedPages = new Map();
+            for (const q of questionsNeedingImages) {
+                const pi = q._pageIdx;
+                if (!renderedPages.has(pi)) {
+                    try {
+                        const page = await extracted.pdf.getPage(pi + 1);
+                        renderedPages.set(pi, await extractPageImage(page));
+                    } catch {
+                        renderedPages.set(pi, null);
+                    }
+                }
+                q.image = renderedPages.get(pi) || undefined;
+                delete q._pageIdx;
+            }
+        }
 
         if (csvText && formNumber) {
             const answerMap = extractAnswersForForm(csvText, formNumber);
