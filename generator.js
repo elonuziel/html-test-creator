@@ -9,6 +9,12 @@ document.addEventListener('DOMContentLoaded', () => {
         saltB64: 'DDyNzdsTLeWBGAnJIuT/Wg=='
     };
 
+    const GOOGLE_VISION_EMBEDDED_KEY = {
+        encryptedKeyB64: '',
+        ivB64: '',
+        saltB64: ''
+    };
+
     const GEMINI_CONFIG = {
         apiVersions: ['v1', 'v1beta'],
         preferredModels: ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-flash'],
@@ -85,8 +91,8 @@ document.addEventListener('DOMContentLoaded', () => {
         return bytes;
     }
 
-    async function decryptEmbeddedApiKey(passcode) {
-        if (!EMBEDDED_KEY.encryptedKeyB64 || !EMBEDDED_KEY.ivB64 || !EMBEDDED_KEY.saltB64 || !passcode) {
+    async function decryptSingleKey(passcode, keyObj) {
+        if (!keyObj || !keyObj.encryptedKeyB64 || !keyObj.ivB64 || !keyObj.saltB64 || !passcode) {
             return '';
         }
 
@@ -103,7 +109,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const aesKey = await crypto.subtle.deriveKey(
                 {
                     name: 'PBKDF2',
-                    salt: decodeBase64(EMBEDDED_KEY.saltB64),
+                    salt: decodeBase64(keyObj.saltB64),
                     iterations: 100000,
                     hash: 'SHA-256'
                 },
@@ -116,16 +122,24 @@ document.addEventListener('DOMContentLoaded', () => {
             const decrypted = await crypto.subtle.decrypt(
                 {
                     name: 'AES-GCM',
-                    iv: decodeBase64(EMBEDDED_KEY.ivB64)
+                    iv: decodeBase64(keyObj.ivB64)
                 },
                 aesKey,
-                decodeBase64(EMBEDDED_KEY.encryptedKeyB64)
+                decodeBase64(keyObj.encryptedKeyB64)
             );
 
             return new TextDecoder().decode(decrypted).trim();
         } catch {
             return '';
         }
+    }
+
+    async function decryptEmbeddedApiKey(passcode) {
+        const gemini = await decryptSingleKey(passcode, EMBEDDED_KEY);
+        const googleVision = await decryptSingleKey(passcode, GOOGLE_VISION_EMBEDDED_KEY);
+        
+        if (!gemini) return null; // We require at least the Gemini key to consider the passcode valid
+        return { gemini, googleVision };
     }
 
     function normalizeWhitespace(value) {
@@ -451,7 +465,10 @@ document.addEventListener('DOMContentLoaded', () => {
             parts.push({ inlineData: { mimeType: 'image/png', data } });
         }
 
-        for (const candidate of candidates) {
+        // Prefer pro model for complex OCR
+        const sortedCandidates = [...candidates].sort((a, b) => b.model.localeCompare(a.model)); // pro before flash
+
+        for (const candidate of sortedCandidates) {
             const endpoint = buildGeminiEndpoint(candidate.version, candidate.model, apiKey);
 
             for (let retryCount = 0; retryCount <= GEMINI_CONFIG.maxQuotaRetries; retryCount++) {
@@ -542,7 +559,10 @@ document.addEventListener('DOMContentLoaded', () => {
             throw new Error('נדרש API key של Gemini או Passcode תקין עבור Gemini Native PDF.');
         }
 
-        const endpoint = buildGeminiEndpoint('v1beta', 'gemini-1.5-flash', apiKey);
+        const candidates = await discoverGeminiModelCandidates(apiKey);
+        const sortedCandidates = [...candidates].sort((a, b) => b.model.localeCompare(a.model));
+        const candidate = sortedCandidates[0]; // Take best model (likely pro)
+        const endpoint = buildGeminiEndpoint(candidate.version, candidate.model, apiKey);
         const prompt = [
             'Extract OCR text from this PDF exam exactly as written.',
             'Do NOT translate, summarize, or rewrite.',
@@ -643,6 +663,262 @@ document.addEventListener('DOMContentLoaded', () => {
             pagePreviews,
             text: pages.join('\n')
         };
+    }
+
+    // --- New OCR Engines & Verification ---
+
+    async function arrayBufferToBase64(buffer) {
+        let binary = '';
+        const bytes = new Uint8Array(buffer);
+        const len = bytes.byteLength;
+        for (let i = 0; i < len; i++) {
+            binary += String.fromCharCode(bytes[i]);
+        }
+        return window.btoa(binary);
+    }
+
+    async function extractTextViaGeminiNativePdf(pdfBuffer, pdf, apiKey) {
+        if (!apiKey) {
+            throw new Error('ה-PDF נראה סרוק ואין מפתח Gemini זמין לחילוץ טקסט. הזן API key או Passcode תקין.');
+        }
+
+        setStatus('מעלה את מסמך ה-PDF ישירות ל-Gemini (Native PDF)...');
+        
+        const base64Pdf = await arrayBufferToBase64(pdfBuffer);
+        const prompt = [
+            'You are an OCR engine for scanned Hebrew exams.',
+            'Extract visible text exactly as printed. Keep Hebrew text in its original reading order.',
+            'Do NOT translate, summarize, reorder, paraphrase, or explain.',
+            'Preserve line breaks and option markers exactly.',
+            'Return plain text only.',
+            '',
+            'CRITICAL: You are receiving a multipage PDF.',
+            'You MUST insert the exact delimiter "---PAGE_BOUNDARY---" on its own line between the text of EACH physical page of the PDF to allow us to map text back to the original page number.'
+        ].join('\n');
+
+        const candidates = await discoverGeminiModelCandidates(apiKey);
+        // Prefer pro model for complex PDF Native processing
+        const sortedCandidates = [...candidates].sort((a, b) => b.model.localeCompare(a.model));
+        const candidate = sortedCandidates[0]; // Take the best model available
+        const endpoint = buildGeminiEndpoint(candidate.version, candidate.model, apiKey);
+
+        const response = await fetch(endpoint, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                contents: [{
+                    parts: [
+                        { text: prompt },
+                        { inlineData: { mimeType: 'application/pdf', data: base64Pdf } }
+                    ]
+                }],
+                generationConfig: {
+                    temperature: 0,
+                    topP: 0.1,
+                    maxOutputTokens: 8192
+                }
+            })
+        });
+
+        if (!response.ok) {
+            const errText = await response.text();
+            throw new Error(`Gemini Native PDF OCR failed: ${response.status} ${errText}`);
+        }
+
+        const payload = await response.json();
+        const responseParts = payload.candidates?.[0]?.content?.parts || [];
+        const text = responseParts.map((part) => part.text || '').join('\n').trim();
+        
+        if (!text) {
+            const finishReason = payload.candidates?.[0]?.finishReason || 'UNKNOWN';
+            throw new Error(`Gemini returned empty OCR text. Finish Reason: ${finishReason}`);
+        }
+
+        const extractedPages = text.split(/---PAGE_BOUNDARY---/i).map(s => s.trim());
+        
+        // Generate previews for proof mode
+        const pagePreviews = [];
+        for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber++) {
+            setStatus(`מכין תצוגה מקדימה לעמוד ${pageNumber}/${pdf.numPages}...`);
+            const page = await pdf.getPage(pageNumber);
+            const imageData = await renderPageImageData(page);
+            pagePreviews.push(`data:image/png;base64,${imageData}`);
+        }
+
+        return {
+            pages: extractedPages.map(p => maybeFixHebrewWordOrder(p || '')),
+            pagePreviews,
+            text: extractedPages.join('\n')
+        };
+    }
+
+    async function extractTextViaGoogleVision(pdf, apiKey) {
+        if (!apiKey) {
+            throw new Error('חסר מפתח API של Google Cloud Vision.');
+        }
+
+        const pages = [];
+        const imageDatas = [];
+        const pagePreviews = [];
+
+        for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber++) {
+            setStatus(`מכין עמוד ${pageNumber}/${pdf.numPages} לשליחה ל-Google Vision...`);
+            const page = await pdf.getPage(pageNumber);
+            const imageData = await renderPageImageData(page);
+            imageDatas.push(imageData);
+            pagePreviews.push(`data:image/png;base64,${imageData}`);
+        }
+
+        const CHUNK_SIZE = 5; // Google Vision batches up to 16, but we'll use 5
+        const endpoint = `https://vision.googleapis.com/v1/images:annotate?key=${apiKey}`;
+
+        for (let i = 0; i < imageDatas.length; i += CHUNK_SIZE) {
+            const chunk = imageDatas.slice(i, i + CHUNK_SIZE);
+            setStatus(`מפענח עמודים ${i + 1}-${Math.min(i + CHUNK_SIZE, imageDatas.length)} ב-Google Vision...`);
+            
+            const requests = chunk.map(data => ({
+                image: { content: data },
+                features: [{ type: 'DOCUMENT_TEXT_DETECTION' }]
+            }));
+
+            const response = await fetch(endpoint, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ requests })
+            });
+
+            if (!response.ok) {
+                const errText = await response.text();
+                throw new Error(`Google Vision request failed: ${response.status} ${errText}`);
+            }
+
+            const payload = await response.json();
+            const chunkPagesText = payload.responses.map(res => res.fullTextAnnotation?.text || '');
+            pages.push(...chunkPagesText);
+        }
+
+        return {
+            pages, // Vision returns text in correct reading order for Hebrew generally, no need for maybeFixHebrewWordOrder
+            pagePreviews,
+            text: pages.join('\n')
+        };
+    }
+
+    async function verifyTestWithGemini(parsedQuestions, apiKey) {
+        setStatus('מבצע הגהה ותיקון של המבחן עם Gemini...');
+        const prompt = [
+            'You are an expert exam proofreader.',
+            'I am providing you with a JSON array of parsed exam questions extracted via OCR.',
+            'Your task is to verify and fix the JSON:',
+            '1. Fix any OCR typos in the Hebrew text.',
+            '2. Ensure options are logically separated and not truncated.',
+            '3. Maintain the exact JSON schema provided.',
+            '4. Return ONLY the raw JSON array, without any markdown formatting or code blocks.',
+            '',
+            'JSON:',
+            JSON.stringify(parsedQuestions, null, 2)
+        ].join('\n');
+
+        const candidates = await discoverGeminiModelCandidates(apiKey);
+        const sortedCandidates = [...candidates].sort((a, b) => b.model.localeCompare(a.model));
+        const candidate = sortedCandidates[0]; // Pro model preferred
+        const endpoint = buildGeminiEndpoint(candidate.version, candidate.model, apiKey);
+
+        const response = await fetch(endpoint, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                contents: [{ parts: [{ text: prompt }] }],
+                generationConfig: {
+                    temperature: 0.1, // slightly higher temp for minor typo fixing
+                    topP: 0.8
+                }
+            })
+        });
+
+        if (!response.ok) {
+            console.warn('Gemini verification failed, using original parsed questions.');
+            return parsedQuestions;
+        }
+
+        const payload = await response.json();
+        const responseParts = payload.candidates?.[0]?.content?.parts || [];
+        let text = responseParts.map((part) => part.text || '').join('\n').trim();
+        
+        // Remove markdown formatting if Gemini included it despite instructions
+        text = text.replace(/^```json\s*/i, '').replace(/```\s*$/i, '').trim();
+
+        try {
+            const verified = JSON.parse(text);
+            if (Array.isArray(verified) && verified.length > 0 && verified[0].question) {
+                return verified;
+            }
+        } catch (e) {
+            console.error('Failed to parse Gemini verification JSON:', e);
+        }
+
+        // Fallback to original if parsing failed
+        return parsedQuestions;
+    }
+
+    // --- End OCR Engines & Verification ---
+
+    async function verifyTestWithGemini(parsedQuestions, apiKey) {
+        setStatus('מבצע הגהה ותיקון של המבחן עם Gemini...');
+        const prompt = [
+            'You are an expert exam proofreader.',
+            'I am providing you with a JSON array of parsed exam questions extracted via OCR.',
+            'Your task is to verify and fix the JSON:',
+            '1. Fix any OCR typos in the Hebrew text.',
+            '2. Ensure options are logically separated and not truncated.',
+            '3. Maintain the exact JSON schema provided.',
+            '4. Return ONLY the raw JSON array, without any markdown formatting or code blocks.',
+            '',
+            'JSON:',
+            JSON.stringify(parsedQuestions, null, 2)
+        ].join('\n');
+
+        const candidates = await discoverGeminiModelCandidates(apiKey);
+        const sortedCandidates = [...candidates].sort((a, b) => b.model.localeCompare(a.model));
+        const candidate = sortedCandidates[0]; // Pro model preferred
+        const endpoint = buildGeminiEndpoint(candidate.version, candidate.model, apiKey);
+
+        const response = await fetch(endpoint, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                contents: [{ parts: [{ text: prompt }] }],
+                generationConfig: {
+                    temperature: 0.1,
+                    topP: 0.8,
+                    maxOutputTokens: 8192
+                }
+            })
+        });
+
+        if (!response.ok) {
+            console.warn('Gemini verification failed, using original parsed questions.');
+            return parsedQuestions;
+        }
+
+        const payload = await response.json();
+        const responseParts = payload.candidates?.[0]?.content?.parts || [];
+        let text = responseParts.map((part) => part.text || '').join('\n').trim();
+        
+        // Remove markdown formatting if Gemini included it despite instructions
+        text = text.replace(/^```json\s*/i, '').replace(/```\s*$/i, '').trim();
+
+        try {
+            const verified = JSON.parse(text);
+            if (Array.isArray(verified) && verified.length > 0 && verified[0].question) {
+                return verified;
+            }
+        } catch (e) {
+            console.error('Failed to parse Gemini verification JSON:', e);
+        }
+
+        // Fallback to original if parsing failed
+        return parsedQuestions;
     }
 
     function parseQuestionsFromText(text, rawPages, pageImages) {
@@ -1077,6 +1353,20 @@ document.addEventListener('DOMContentLoaded', () => {
                 ...q,
                 correctIndex: 0
             }));
+        }
+
+        // Verification step using Gemini Pro (skip if Google Vision used without Gemini key)
+        if (apiKey && ocrEngine !== 'google_vision') {
+            state.questions = await verifyTestWithGemini(state.questions, apiKey);
+        } else if (ocrEngine === 'google_vision') {
+            // If we have a Gemini key in the background (via passcode), use it for verification
+            const passcode = elements.passcode.value.trim();
+            if (passcode) {
+                const keys = await decryptEmbeddedApiKey(passcode);
+                if (keys && keys.gemini) {
+                    state.questions = await verifyTestWithGemini(state.questions, keys.gemini);
+                }
+            }
         }
 
         renderPreview();
