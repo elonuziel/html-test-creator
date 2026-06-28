@@ -146,6 +146,17 @@ document.addEventListener('DOMContentLoaded', () => {
         return lines.map((line) => line.chunks.sort((a, b) => a.x - b.x).map((chunk) => chunk.text).join(' '));
     }
 
+    async function extractPageImage(page) {
+        // Render the full page to a canvas and return it as a base64 PNG data URL.
+        const viewport = page.getViewport({ scale: 1.5 });
+        const canvas = document.createElement('canvas');
+        canvas.width = Math.floor(viewport.width);
+        canvas.height = Math.floor(viewport.height);
+        const ctx = canvas.getContext('2d');
+        await page.render({ canvasContext: ctx, viewport }).promise;
+        return canvas.toDataURL('image/png');
+    }
+
     async function extractPdfText(arrayBuffer) {
         if (!window.pdfjsLib?.getDocument) {
             throw new Error('PDF.js לא נטען. רענן את העמוד ונסה שוב.');
@@ -154,6 +165,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const loadingTask = window.pdfjsLib.getDocument({ data: arrayBuffer });
         const pdf = await loadingTask.promise;
         const pages = [];
+        const pageImages = []; // index = pageNumber-1, value = base64 data URL or null
         let nonWhitespaceChars = 0;
 
         for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber++) {
@@ -162,12 +174,26 @@ document.addEventListener('DOMContentLoaded', () => {
             const lineText = groupPdfTextItemsToLines(textContent.items).join('\n');
             pages.push(lineText);
             nonWhitespaceChars += lineText.replace(/\s/g, '').length;
+
+            // Detect if this page has embedded images via operator list
+            try {
+                const ops = await page.getOperatorList();
+                const hasPaintOp = ops.fnArray.some((fn) =>
+                    fn === window.pdfjsLib.OPS.paintImageXObject ||
+                    fn === window.pdfjsLib.OPS.paintInlineImageXObject
+                );
+                pageImages.push(hasPaintOp ? await extractPageImage(page) : null);
+            } catch {
+                pageImages.push(null);
+            }
         }
 
         return {
             pdf,
+            pageImages,
             isScanned: nonWhitespaceChars < Math.max(pdf.numPages * 60, 120),
-            text: fixHebrewWordOrder(pages.join('\n'))
+            text: fixHebrewWordOrder(pages.join('\n')),
+            rawPages: pages // preserve per-page text for image association
         };
     }
 
@@ -229,8 +255,17 @@ document.addEventListener('DOMContentLoaded', () => {
         return pages.join('\n');
     }
 
-    function parseQuestionsFromText(text) {
+    function parseQuestionsFromText(text, rawPages, pageImages) {
         const lines = text.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+        // Build a map: lineIndex -> pageIndex (so we can assign images by page)
+        const linePageMap = [];
+        if (rawPages && rawPages.length) {
+            let lineIdx = 0;
+            rawPages.forEach((pageText, pageIdx) => {
+                const pageLineCount = pageText.split('\n').filter(Boolean).length || 1;
+                for (let i = 0; i < pageLineCount; i++) linePageMap[lineIdx++] = pageIdx;
+            });
+        }
         // Matches: 'שאלה מספר 1:', 'שאלה מספר :1' (space before colon from PDF.js), 'שאלה 1:', '1.', '1)'
         const qPattern = /(?:^|\s)(?:שאלה\s+(?:מספר\s+)?:?\d+\s*:?|שאלה\s+(?:מספר\s+)?\d+|:?\d+\s*:?\s*מספר\s+שאלה|:?\d+\s*:?\s*שאלה|\d+\s*[\.\)-]|[\.\)-]\s*\d+)(?:\s|$)/;
         // Matches: 'א. text', 'א . text' (space between letter and dot from PDF.js visual layout)
@@ -257,7 +292,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
             if (qPattern.test(line) || qPattern.test(reversedLine)) {
                 pushCurrent();
-                current = { text: [], answers: [] };
+                current = { text: [], answers: [], lineIdx: lines.indexOf(line) };
                 stateMode = 1;
                 continue;
             }
@@ -298,12 +333,28 @@ document.addEventListener('DOMContentLoaded', () => {
 
         pushCurrent();
 
+        const imageKeywords = /לפניכם|גרף|תרשים|תמונה|איור|מפה|ציור|דיאגרמה|צילום|מוצג/;
+
         const formatted = rawQuestions
-            .map((q) => ({
-                question: normalizeWhitespace(q.text.join(' ')),
-                options: q.answers.map((a) => normalizeWhitespace(a.text.join(' '))).filter(Boolean),
-                correctIndex: 0
-            }))
+            .map((q) => {
+                const question = normalizeWhitespace(q.text.join(' '));
+                const options = q.answers.map((a) => normalizeWhitespace(a.text.join(' '))).filter(Boolean);
+                const obj = { question, options, correctIndex: 0 };
+
+                // Attach image if the question text suggests one and the page has an embedded image
+                if (pageImages && pageImages.length && imageKeywords.test(question)) {
+                    const pageIdx = linePageMap[q.lineIdx] ?? 0;
+                    // Search current page first, then adjacent pages
+                    for (const pi of [pageIdx, pageIdx - 1, pageIdx + 1]) {
+                        if (pi >= 0 && pi < pageImages.length && pageImages[pi]) {
+                            obj.image = pageImages[pi];
+                            break;
+                        }
+                    }
+                }
+
+                return obj;
+            })
             .filter((q) => q.question && q.options.length >= 2);
 
         if (!formatted.length) {
@@ -420,6 +471,27 @@ document.addEventListener('DOMContentLoaded', () => {
             questionRow.className = 'row';
             questionRow.innerHTML = `<label>שאלה ${index + 1}</label>`;
 
+            // Image thumbnail
+            if (question.image) {
+                const imgWrap = document.createElement('div');
+                imgWrap.style.cssText = 'grid-column:1/-1;display:flex;align-items:center;gap:8px;margin-bottom:6px;';
+                const thumb = document.createElement('img');
+                thumb.src = question.image;
+                thumb.style.cssText = 'max-height:120px;max-width:100%;border-radius:8px;border:1px solid var(--border-color);cursor:zoom-in;';
+                thumb.title = 'לחץ להצגה מלאה';
+                thumb.addEventListener('click', () => window.open(question.image, '_blank'));
+                const removeBtn = document.createElement('button');
+                removeBtn.type = 'button';
+                removeBtn.textContent = '✕ הסר תמונה';
+                removeBtn.style.cssText = 'font-size:.8rem;padding:4px 8px;';
+                removeBtn.addEventListener('click', () => {
+                    delete state.questions[index].image;
+                    imgWrap.remove();
+                });
+                imgWrap.append(thumb, removeBtn);
+                card.appendChild(imgWrap);
+            }
+
             const questionTextarea = document.createElement('textarea');
             questionTextarea.value = question.question;
             questionTextarea.addEventListener('input', () => {
@@ -475,7 +547,8 @@ document.addEventListener('DOMContentLoaded', () => {
         const cleanedQuestions = state.questions.map((q) => ({
             question: normalizeWhitespace(q.question),
             options: q.options.map((opt) => normalizeWhitespace(opt)),
-            correctIndex: q.correctIndex
+            correctIndex: q.correctIndex,
+            ...(q.image ? { image: q.image } : {}) // embed base64 image directly
         }));
 
         const { indexHtml, styleCss, appJs } = await getTemplateSources();
@@ -534,8 +607,8 @@ document.addEventListener('DOMContentLoaded', () => {
             examText = fixHebrewWordOrder(examText);
         }
 
-        let parsedQuestions = parseQuestionsFromText(examText);
-        
+        let parsedQuestions = parseQuestionsFromText(examText, extracted.rawPages, extracted.pageImages);
+
         if (csvText && formNumber) {
             const answerMap = extractAnswersForForm(csvText, formNumber);
             state.questions = mergeAnswers(parsedQuestions, answerMap);
