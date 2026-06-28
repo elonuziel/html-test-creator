@@ -182,7 +182,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     async function callGeminiOcr(apiKey, imageData) {
-        const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${encodeURIComponent(apiKey)}`;
+        const endpoint = `https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key=${encodeURIComponent(apiKey)}`;
         const prompt = 'Extract all visible Hebrew question text exactly as written. Keep structure with question headers and options. Return plain text only.';
         const response = await fetch(endpoint, {
             method: 'POST',
@@ -214,7 +214,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     async function extractTextViaGemini(pdf, apiKey) {
         if (!apiKey) {
-            throw new Error('ה-PDF נראה סרוק ואין מפתח Gemini זמין לחילוץ טקסט.');
+            throw new Error('לא נמצא פורמט נתמך');
         }
 
         const pages = [];
