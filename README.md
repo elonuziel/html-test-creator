@@ -28,6 +28,12 @@ This repository also hosts comprehensive documentation on digitizing and extract
 1. **[Hebrew PDF Conversion Guide](hebrew_pdf_conversion_guide.md)**: A detailed walkthrough on converting Hebrew PDFs to markdown formats using state-of-the-art tools (e.g., MarkItDown).
 2. **[LLM CSV Extraction Guide](llm_csv_extraction_guide.md)**: Guidance on parsing exams and answer keys using LLMs and structured formats (like CSV files).
 
+## 🛠️ Quiz Generator (Implementation Started)
+
+A first implementation pass is now available:
+- **[quiz_generator.html](quiz_generator.html)**: Browser UI to upload exam PDF + answers CSV.
+- **[generator.js](generator.js)**: Extracts text from PDF pages, parses questions, merges CSV answer keys by form number, and exports `questions.json`.
+
 ## 📄 License
 
 This project is licensed under the MIT License. See the [LICENSE](LICENSE) file for details.
