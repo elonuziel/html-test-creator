@@ -10,13 +10,14 @@ document.addEventListener('DOMContentLoaded', () => {
     };
 
     const GEMINI_CONFIG = {
-        apiVersion: 'v1beta',
-        models: ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-flash']
+        apiVersions: ['v1', 'v1beta'],
+        preferredModels: ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-flash']
     };
 
     const state = {
         questions: [],
-        templateCache: null
+        templateCache: null,
+        geminiModelCandidates: null
     };
 
     const elements = {
@@ -212,8 +213,67 @@ document.addEventListener('DOMContentLoaded', () => {
         return canvas.toDataURL('image/png').replace(/^data:image\/png;base64,/, '');
     }
 
-    function buildGeminiEndpoint(model, apiKey) {
-        return `https://generativelanguage.googleapis.com/${GEMINI_CONFIG.apiVersion}/models/${model}:generateContent?key=${encodeURIComponent(apiKey)}`;
+    function buildGeminiEndpoint(version, model, apiKey) {
+        return `https://generativelanguage.googleapis.com/${version}/models/${model}:generateContent?key=${encodeURIComponent(apiKey)}`;
+    }
+
+    function normalizeModelName(name) {
+        if (!name) return '';
+        return name.startsWith('models/') ? name.slice('models/'.length) : name;
+    }
+
+    async function discoverGeminiModelCandidates(apiKey) {
+        if (state.geminiModelCandidates) {
+            return state.geminiModelCandidates;
+        }
+
+        const discovered = [];
+        const seen = new Set();
+
+        for (const version of GEMINI_CONFIG.apiVersions) {
+            const endpoint = `https://generativelanguage.googleapis.com/${version}/models?key=${encodeURIComponent(apiKey)}`;
+            try {
+                const response = await fetch(endpoint);
+                if (!response.ok) {
+                    continue;
+                }
+
+                const payload = await response.json();
+                const models = payload.models || [];
+                for (const model of models) {
+                    const modelName = normalizeModelName(model.name || '');
+                    const supportedMethods = model.supportedGenerationMethods || [];
+                    if (!modelName || !supportedMethods.includes('generateContent')) {
+                        continue;
+                    }
+
+                    if (!modelName.includes('gemini') || !modelName.includes('flash')) {
+                        continue;
+                    }
+
+                    const key = `${version}:${modelName}`;
+                    if (seen.has(key)) {
+                        continue;
+                    }
+
+                    seen.add(key);
+                    discovered.push({ version, model: modelName });
+                }
+            } catch {
+                // Fall through to static fallback list.
+            }
+        }
+
+        if (!discovered.length) {
+            for (const version of GEMINI_CONFIG.apiVersions) {
+                for (const model of GEMINI_CONFIG.preferredModels) {
+                    discovered.push({ version, model });
+                }
+            }
+        }
+
+        state.geminiModelCandidates = discovered;
+        return discovered;
     }
 
     function getGeminiErrorInfo(status, errorText) {
@@ -277,9 +337,10 @@ document.addEventListener('DOMContentLoaded', () => {
     async function callGeminiOcr(apiKey, imageData) {
         const prompt = 'Extract all visible Hebrew question text exactly as written. Keep structure with question headers and options. Return plain text only.';
         const attemptErrors = [];
+        const candidates = await discoverGeminiModelCandidates(apiKey);
 
-        for (const model of GEMINI_CONFIG.models) {
-            const endpoint = buildGeminiEndpoint(model, apiKey);
+        for (const candidate of candidates) {
+            const endpoint = buildGeminiEndpoint(candidate.version, candidate.model, apiKey);
             const response = await fetch(endpoint, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -305,7 +366,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
             const errorText = await response.text();
             const errorInfo = getGeminiErrorInfo(response.status, errorText);
-            attemptErrors.push(`[${model}] ${response.status} ${errorInfo.userMessage}`);
+            attemptErrors.push(`[${candidate.version}/${candidate.model}] ${response.status} ${errorInfo.userMessage}`);
 
             if (errorInfo.retryNextModel) {
                 continue;
@@ -319,7 +380,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     async function extractTextViaGemini(pdf, apiKey) {
         if (!apiKey) {
-            throw new Error('לא נמצא פורמט נתמך');
+            throw new Error('ה-PDF נראה סרוק ואין מפתח Gemini זמין לחילוץ טקסט. הזן API key או Passcode תקין.');
         }
 
         const pages = [];
