@@ -131,6 +131,33 @@ document.addEventListener('DOMContentLoaded', () => {
             .join('\n');
     }
 
+    function maybeFixHebrewWordOrder(text) {
+        const lines = text
+            .split(/\r?\n/)
+            .map((line) => line.trim())
+            .filter(Boolean)
+            .slice(0, 200);
+
+        if (!lines.length) {
+            return text;
+        }
+
+        // If key phrases are mostly reversed (e.g. "מספר שאלה"), reorder words.
+        let normalSignals = 0;
+        let reversedSignals = 0;
+
+        for (const line of lines) {
+            if (/שאלה\s+מספר|מבחן\s+מס/.test(line)) {
+                normalSignals++;
+            }
+            if (/מספר\s+שאלה|מס\s+מבחן/.test(line)) {
+                reversedSignals++;
+            }
+        }
+
+        return reversedSignals > normalSignals ? fixHebrewWordOrder(text) : text;
+    }
+
     function groupPdfTextItemsToLines(items) {
         const normalized = items
             .filter((item) => item.str && item.str.trim())
@@ -202,7 +229,7 @@ document.addEventListener('DOMContentLoaded', () => {
             pdf,
             pageImages,
             isScanned: nonWhitespaceChars < Math.max(pdf.numPages * 60, 120),
-            text: fixHebrewWordOrder(pages.join('\n')),
+            text: maybeFixHebrewWordOrder(pages.join('\n')),
             rawPages: pages // preserve per-page text for image association
         };
     }
@@ -814,7 +841,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (extracted.isScanned) {
             setStatus('זוהה PDF סרוק. מנסה חילוץ עם Gemini...');
             examText = await extractTextViaGemini(extracted.pdf, apiKey);
-            examText = fixHebrewWordOrder(examText);
+            examText = maybeFixHebrewWordOrder(examText);
         }
 
         let parsedQuestions = parseQuestionsFromText(examText, extracted.rawPages, extracted.pageImages);
