@@ -50,6 +50,14 @@
             font: inherit;
             width: 100%;
         }
+        #proof-mode-toggle {
+            width: auto;
+            padding: 0;
+            border: none;
+            background: transparent;
+            accent-color: var(--primary-color);
+            justify-self: start;
+        }
         .actions {
             display: flex;
             flex-wrap: wrap;
@@ -140,6 +148,10 @@
                 <button id="run-parse" class="primary-btn">הפעל ניתוח</button>
                 <button id="download-quiz" class="success-btn" disabled>הורד מבחן עצמאי</button>
                 <button id="take-quiz" class="secondary-btn" disabled>פתור מבחן כעת</button>
+            </div>
+            <div class="field" style="margin-top:10px;">
+                <label for="proof-mode-toggle">מצב הגהה (הצגת עמוד מקור לכל שאלה)</label>
+                <input id="proof-mode-toggle" type="checkbox" checked>
             </div>
             <div id="status" class="status muted">מוכן להתחלה.</div>
         </section>

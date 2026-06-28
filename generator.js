@@ -15,13 +15,16 @@ document.addEventListener('DOMContentLoaded', () => {
         maxQuotaRetries: 3,
         initialRetryDelayMs: 2500,
         maxRetryDelayMs: 30000,
-        interPageDelayMs: 4200
+        interPageDelayMs: 4200,
+        ocrChunkSize: 5
     };
 
     const state = {
         questions: [],
         templateCache: null,
-        geminiModelCandidates: null
+        geminiModelCandidates: null,
+        proofPageImages: [],
+        proofMode: true
     };
 
     const elements = {
@@ -35,6 +38,7 @@ document.addEventListener('DOMContentLoaded', () => {
         takeQuiz: document.getElementById('take-quiz'),
         status: document.getElementById('status'),
         preview: document.getElementById('preview'),
+        proofModeToggle: document.getElementById('proof-mode-toggle'),
         themeToggle: document.getElementById('theme-toggle'),
         themeIcon: document.getElementById('theme-icon')
     };
@@ -54,6 +58,13 @@ document.addEventListener('DOMContentLoaded', () => {
 
     setTheme(theme);
     elements.themeToggle.addEventListener('click', () => setTheme(theme === 'light' ? 'dark' : 'light'));
+    if (elements.proofModeToggle) {
+        state.proofMode = !!elements.proofModeToggle.checked;
+        elements.proofModeToggle.addEventListener('change', () => {
+            state.proofMode = !!elements.proofModeToggle.checked;
+            renderPreview();
+        });
+    }
 
     function setStatus(message, isError = false) {
         elements.status.textContent = message;
@@ -392,7 +403,19 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     async function callGeminiOcr(apiKey, imageDatas) {
-        const prompt = 'Extract all visible Hebrew question text exactly as written. Keep structure with question headers and options. Return plain text only.\n\nCRITICAL: You are receiving multiple page images. You MUST separate the extracted text for each page with the exact text "---PAGE_BOUNDARY---" on its own line.';
+        const prompt = [
+            'You are an OCR engine for scanned Hebrew exams.',
+            'Extract visible text exactly as printed.',
+            'Do NOT translate, summarize, reorder, paraphrase, or explain.',
+            'Keep Hebrew text in its original reading order.',
+            'Preserve line breaks and option markers exactly.',
+            'Preserve question and option structure (e.g., "שאלה מספר", "א.", "ב.", "ג.", "ד.").',
+            'If text is unclear, keep best-effort literal OCR and do not invent content.',
+            'Return plain text only.',
+            '',
+            'CRITICAL: You are receiving multiple page images.',
+            'You MUST separate each page output with the exact delimiter "---PAGE_BOUNDARY---" on its own line.'
+        ].join('\n');
         const attemptErrors = [];
         const candidates = await discoverGeminiModelCandidates(apiKey);
 
@@ -409,7 +432,12 @@ document.addEventListener('DOMContentLoaded', () => {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
-                        contents: [{ parts }]
+                        contents: [{ parts }],
+                        generationConfig: {
+                            temperature: 0,
+                            topP: 0.1,
+                            maxOutputTokens: 8192
+                        }
                     })
                 });
 
@@ -461,28 +489,34 @@ document.addEventListener('DOMContentLoaded', () => {
 
         const pages = [];
         const imageDatas = [];
+        const pagePreviews = [];
 
         for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber++) {
             setStatus(`מכין עמוד ${pageNumber}/${pdf.numPages} לשליחה...`);
             const page = await pdf.getPage(pageNumber);
             const imageData = await renderPageImageData(page);
             imageDatas.push(imageData);
+            pagePreviews.push(`data:image/png;base64,${imageData}`);
         }
 
-        const CHUNK_SIZE = 10;
+        const CHUNK_SIZE = GEMINI_CONFIG.ocrChunkSize;
         for (let i = 0; i < imageDatas.length; i += CHUNK_SIZE) {
             const chunk = imageDatas.slice(i, i + CHUNK_SIZE);
             setStatus(`מפענח עמודים ${i + 1}-${Math.min(i + CHUNK_SIZE, imageDatas.length)} מתוך ${imageDatas.length} ב-Gemini...`);
             
             const chunkPagesText = await callGeminiOcr(apiKey, chunk);
-            pages.push(...chunkPagesText);
+            pages.push(...chunkPagesText.map((pageText) => maybeFixHebrewWordOrder(pageText || '')));
 
             if (i + CHUNK_SIZE < imageDatas.length && GEMINI_CONFIG.interPageDelayMs > 0) {
                 await delay(GEMINI_CONFIG.interPageDelayMs);
             }
         }
 
-        return pages.join('\n');
+        return {
+            pages,
+            pagePreviews,
+            text: pages.join('\n')
+        };
     }
 
     function parseQuestionsFromText(text, rawPages, pageImages) {
@@ -492,7 +526,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const filteredLinePageMap = [];
         if (rawPages && rawPages.length) {
             rawPages.forEach((pageText, pageIdx) => {
-                const processedLines = fixHebrewWordOrder(pageText)
+                const processedLines = maybeFixHebrewWordOrder(pageText || '')
                     .split('\n')
                     .map(l => l.trim())
                     .filter(Boolean);
@@ -569,23 +603,20 @@ document.addEventListener('DOMContentLoaded', () => {
 
         pushCurrent();
 
-        const imageKeywords = /לפניכם|גרף|תרשים|תמונה|איור|מפה|ציור|דיאגרמה|צילום|מוצג/;
+        const imageKeywords = /לפניכם|גרף|תרשים|תמונה|איור|מפה|ציור|דיאגרמה|צילום/;
 
         const formatted = rawQuestions
             .map((q) => {
                 const question = normalizeWhitespace(q.text.join(' '));
                 const options = q.answers.map((a) => normalizeWhitespace(a.text.join(' '))).filter(Boolean);
-                const obj = { question, options, correctIndex: 0 };
+                const pageIdx = filteredLinePageMap[q.lineIdx] ?? 0;
+                const obj = { question, options, correctIndex: 0, sourcePage: pageIdx + 1 };
 
-                // Attach image if the question text suggests one and the page has an embedded image
+                // Attach image only for strong visual-reference cues to avoid wrong page assignments.
                 if (pageImages && pageImages.length && imageKeywords.test(question)) {
-                    const pageIdx = filteredLinePageMap[q.lineIdx] ?? 0;
-                    // Search current page first, then adjacent pages
-                    for (const pi of [pageIdx, pageIdx - 1, pageIdx + 1]) {
-                        if (pi >= 0 && pi < pageImages.length && pageImages[pi]) {
-                            obj.image = pageImages[pi];
-                            break;
-                        }
+                    // Use exact page only. This prevents attaching charts from nearby pages.
+                    if (pageIdx >= 0 && pageIdx < pageImages.length && pageImages[pageIdx]) {
+                        obj.image = pageImages[pageIdx];
                     }
                 }
 
@@ -736,6 +767,30 @@ document.addEventListener('DOMContentLoaded', () => {
             questionRow.appendChild(questionTextarea);
             card.appendChild(questionRow);
 
+            if (state.proofMode && question.sourcePage && state.proofPageImages.length) {
+                const sourcePageIndex = Number(question.sourcePage) - 1;
+                const sourcePageImage = state.proofPageImages[sourcePageIndex];
+                if (sourcePageImage) {
+                    const proofWrap = document.createElement('details');
+                    proofWrap.style.cssText = 'grid-column:1/-1;border:1px solid var(--border-color);border-radius:10px;background:var(--card-bg);padding:8px;';
+                    proofWrap.open = false;
+
+                    const summary = document.createElement('summary');
+                    summary.textContent = `מצב הגהה: עמוד מקור ${question.sourcePage}`;
+                    summary.style.cssText = 'cursor:pointer;font-weight:600;margin-bottom:8px;';
+                    proofWrap.appendChild(summary);
+
+                    const sourceImg = document.createElement('img');
+                    sourceImg.src = sourcePageImage;
+                    sourceImg.alt = `עמוד מקור ${question.sourcePage}`;
+                    sourceImg.style.cssText = 'max-width:100%;border-radius:8px;border:1px solid var(--border-color);cursor:zoom-in;';
+                    sourceImg.addEventListener('click', () => window.open(sourcePageImage, '_blank'));
+                    proofWrap.appendChild(sourceImg);
+
+                    card.appendChild(proofWrap);
+                }
+            }
+
             question.options.forEach((option, optIndex) => {
                 const optionRow = document.createElement('div');
                 optionRow.className = 'option-row';
@@ -805,6 +860,7 @@ document.addEventListener('DOMContentLoaded', () => {
     async function runParse() {
         disableOutputActions(true);
         elements.preview.innerHTML = '';
+        state.proofPageImages = [];
 
         const pdf = elements.pdfFile.files?.[0];
         const csv = elements.csvFile.files?.[0];
@@ -838,13 +894,16 @@ document.addEventListener('DOMContentLoaded', () => {
         const extracted = await extractPdfText(pdfBuffer);
 
         let examText = extracted.text;
+        let sourcePages = extracted.rawPages;
         if (extracted.isScanned) {
             setStatus('זוהה PDF סרוק. מנסה חילוץ עם Gemini...');
-            examText = await extractTextViaGemini(extracted.pdf, apiKey);
-            examText = maybeFixHebrewWordOrder(examText);
+            const geminiExtraction = await extractTextViaGemini(extracted.pdf, apiKey);
+            examText = geminiExtraction.text;
+            sourcePages = geminiExtraction.pages;
+            state.proofPageImages = geminiExtraction.pagePreviews || [];
         }
 
-        let parsedQuestions = parseQuestionsFromText(examText, extracted.rawPages, extracted.pageImages);
+        let parsedQuestions = parseQuestionsFromText(examText, sourcePages, extracted.pageImages);
 
         if (csvText && formNumber) {
             const answerMap = extractAnswersForForm(csvText, formNumber);
