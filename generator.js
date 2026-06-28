@@ -231,8 +231,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function parseQuestionsFromText(text) {
         const lines = text.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
-        const qPattern = /^שאלה מספר\s*\d+\s*:?/;
-        const ansPattern = /^([אבגד])\.\s*(.*)$/;
+        // Matches "שאלה מספר 1:", "שאלה 1:", "1.", "1)", or "1 -"
+        const qPattern = /^(?:שאלה\s+(?:מספר\s+)?\d+\s*:?|\d+\s*[\.\)-])/;
+        const ansPattern = /^([אבגד1-4])[\.\)]\s*(.*)$/;
         const noisePattern = /^עמוד\s+\d+\s+מתוך\s+\d+$/;
 
         const rawQuestions = [];
@@ -266,7 +267,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 stateMode = 2;
                 const letter = ansMatch[1];
                 let answerText = ansMatch[2].trim();
-                if (letter === 'א' && !answerText && current.text.length > 0) {
+                if ((letter === 'א' || letter === '1') && !answerText && current.text.length > 0) {
                     answerText = current.text.pop();
                 }
                 current.answers.push({ text: answerText ? [answerText] : [] });
