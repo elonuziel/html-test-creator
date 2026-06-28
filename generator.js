@@ -16,7 +16,7 @@ document.addEventListener('DOMContentLoaded', () => {
         initialRetryDelayMs: 2500,
         maxRetryDelayMs: 30000,
         interPageDelayMs: 4200,
-        ocrChunkSize: 5
+        ocrChunkSize: 2
     };
 
     const state = {
