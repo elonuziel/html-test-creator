@@ -11,7 +11,11 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const GEMINI_CONFIG = {
         apiVersions: ['v1', 'v1beta'],
-        preferredModels: ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-flash']
+        preferredModels: ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-flash'],
+        maxQuotaRetries: 3,
+        initialRetryDelayMs: 2500,
+        maxRetryDelayMs: 30000,
+        interPageDelayMs: 600
     };
 
     const state = {
@@ -334,6 +338,32 @@ document.addEventListener('DOMContentLoaded', () => {
         };
     }
 
+    function delay(ms) {
+        return new Promise((resolve) => setTimeout(resolve, ms));
+    }
+
+    function computeRetryDelayMs(response, retryCount) {
+        const retryAfter = response.headers.get('Retry-After');
+        if (retryAfter) {
+            const asSeconds = Number(retryAfter);
+            if (Number.isFinite(asSeconds) && asSeconds > 0) {
+                return Math.min(asSeconds * 1000, GEMINI_CONFIG.maxRetryDelayMs);
+            }
+
+            const asDate = Date.parse(retryAfter);
+            if (!Number.isNaN(asDate)) {
+                const delta = asDate - Date.now();
+                if (delta > 0) {
+                    return Math.min(delta, GEMINI_CONFIG.maxRetryDelayMs);
+                }
+            }
+        }
+
+        const exponential = GEMINI_CONFIG.initialRetryDelayMs * (2 ** retryCount);
+        const jitter = Math.floor(Math.random() * 500);
+        return Math.min(exponential + jitter, GEMINI_CONFIG.maxRetryDelayMs);
+    }
+
     async function callGeminiOcr(apiKey, imageData) {
         const prompt = 'Extract all visible Hebrew question text exactly as written. Keep structure with question headers and options. Return plain text only.';
         const attemptErrors = [];
@@ -341,38 +371,49 @@ document.addEventListener('DOMContentLoaded', () => {
 
         for (const candidate of candidates) {
             const endpoint = buildGeminiEndpoint(candidate.version, candidate.model, apiKey);
-            const response = await fetch(endpoint, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    contents: [{
-                        parts: [
-                            { text: prompt },
-                            { inlineData: { mimeType: 'image/png', data: imageData } }
-                        ]
-                    }]
-                })
-            });
 
-            if (response.ok) {
-                const payload = await response.json();
-                const parts = payload.candidates?.[0]?.content?.parts || [];
-                const text = parts.map((part) => part.text || '').join('\n').trim();
-                if (!text) {
-                    throw new Error('Gemini returned empty OCR text.');
+            for (let retryCount = 0; retryCount <= GEMINI_CONFIG.maxQuotaRetries; retryCount++) {
+                const response = await fetch(endpoint, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        contents: [{
+                            parts: [
+                                { text: prompt },
+                                { inlineData: { mimeType: 'image/png', data: imageData } }
+                            ]
+                        }]
+                    })
+                });
+
+                if (response.ok) {
+                    const payload = await response.json();
+                    const parts = payload.candidates?.[0]?.content?.parts || [];
+                    const text = parts.map((part) => part.text || '').join('\n').trim();
+                    if (!text) {
+                        throw new Error('Gemini returned empty OCR text.');
+                    }
+                    return text;
                 }
-                return text;
+
+                const errorText = await response.text();
+                const errorInfo = getGeminiErrorInfo(response.status, errorText);
+
+                if (errorInfo.code === 'quota' && retryCount < GEMINI_CONFIG.maxQuotaRetries) {
+                    const delayMs = computeRetryDelayMs(response, retryCount);
+                    setStatus(`Gemini החזיר 429. ממתין ${Math.ceil(delayMs / 1000)} שניות ומנסה שוב...`);
+                    await delay(delayMs);
+                    continue;
+                }
+
+                attemptErrors.push(`[${candidate.version}/${candidate.model}] ${response.status} ${errorInfo.userMessage}`);
+
+                if (errorInfo.retryNextModel) {
+                    break;
+                }
+
+                throw new Error(`Gemini request failed: ${errorInfo.userMessage}`);
             }
-
-            const errorText = await response.text();
-            const errorInfo = getGeminiErrorInfo(response.status, errorText);
-            attemptErrors.push(`[${candidate.version}/${candidate.model}] ${response.status} ${errorInfo.userMessage}`);
-
-            if (errorInfo.retryNextModel) {
-                continue;
-            }
-
-            throw new Error(`Gemini request failed: ${errorInfo.userMessage}`);
         }
 
         throw new Error(`Gemini request failed: לא נמצא מודל Gemini נתמך. ${attemptErrors.join(' | ')}`);
@@ -390,6 +431,10 @@ document.addEventListener('DOMContentLoaded', () => {
             const imageData = await renderPageImageData(page);
             const pageText = await callGeminiOcr(apiKey, imageData);
             pages.push(pageText);
+
+            if (pageNumber < pdf.numPages && GEMINI_CONFIG.interPageDelayMs > 0) {
+                await delay(GEMINI_CONFIG.interPageDelayMs);
+            }
         }
 
         return pages.join('\n');
