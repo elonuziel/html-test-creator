@@ -41,7 +41,7 @@
             gap: 6px;
             margin-bottom: 12px;
         }
-        .field input, .field textarea {
+        .field input, .field textarea, .field select {
             background: var(--input-bg);
             color: var(--text-primary);
             border: 1px solid var(--border-color);
@@ -137,7 +137,15 @@
                 <input id="form-number" type="text" inputmode="numeric" placeholder="לדוגמה: 76">
             </div>
             <div class="field">
-                <label for="api-key">Gemini API Key (אופציונלי)</label>
+                <label for="ocr-engine">מנוע OCR</label>
+                <select id="ocr-engine">
+                    <option value="gemini_chunked" selected>Gemini (Page Chunking)</option>
+                    <option value="gemini_native">Gemini (Native PDF Upload)</option>
+                    <option value="google_vision">Google Cloud Vision</option>
+                </select>
+            </div>
+            <div class="field">
+                <label for="api-key">API Key / Passcode (אופציונלי)</label>
                 <input id="api-key" type="password" autocomplete="off" placeholder="AIza...">
             </div>
             <div class="field">

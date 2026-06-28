@@ -31,6 +31,7 @@ document.addEventListener('DOMContentLoaded', () => {
         pdfFile: document.getElementById('pdf-file'),
         csvFile: document.getElementById('csv-file'),
         formNumber: document.getElementById('form-number'),
+        ocrEngine: document.getElementById('ocr-engine'),
         apiKey: document.getElementById('api-key'),
         passcode: document.getElementById('passcode'),
         runParse: document.getElementById('run-parse'),
@@ -253,6 +254,32 @@ document.addEventListener('DOMContentLoaded', () => {
         canvas.height = Math.floor(viewport.height);
         await page.render({ canvasContext: context, viewport }).promise;
         return canvas.toDataURL('image/png').replace(/^data:image\/png;base64,/, '');
+    }
+
+    function arrayBufferToBase64(buffer) {
+        let binary = '';
+        const bytes = new Uint8Array(buffer);
+        const chunkSize = 0x8000;
+        for (let i = 0; i < bytes.length; i += chunkSize) {
+            const chunk = bytes.subarray(i, i + chunkSize);
+            binary += String.fromCharCode(...chunk);
+        }
+        return btoa(binary);
+    }
+
+    async function renderAllPdfPageImages(pdf) {
+        const imageDatas = [];
+        const pagePreviews = [];
+
+        for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber++) {
+            setStatus(`מכין עמוד ${pageNumber}/${pdf.numPages} לשליחה...`);
+            const page = await pdf.getPage(pageNumber);
+            const imageData = await renderPageImageData(page);
+            imageDatas.push(imageData);
+            pagePreviews.push(`data:image/png;base64,${imageData}`);
+        }
+
+        return { imageDatas, pagePreviews };
     }
 
     function buildGeminiEndpoint(version, model, apiKey) {
@@ -482,30 +509,129 @@ document.addEventListener('DOMContentLoaded', () => {
         throw new Error(`Gemini request failed: לא נמצא מודל Gemini נתמך. ${attemptErrors.join(' | ')}`);
     }
 
-    async function extractTextViaGemini(pdf, apiKey) {
+    async function extractTextViaGemini(pdf, apiKey, chunkSizeOverride = null) {
         if (!apiKey) {
             throw new Error('ה-PDF נראה סרוק ואין מפתח Gemini זמין לחילוץ טקסט. הזן API key או Passcode תקין.');
         }
 
         const pages = [];
-        const imageDatas = [];
-        const pagePreviews = [];
+        const { imageDatas, pagePreviews } = await renderAllPdfPageImages(pdf);
 
-        for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber++) {
-            setStatus(`מכין עמוד ${pageNumber}/${pdf.numPages} לשליחה...`);
-            const page = await pdf.getPage(pageNumber);
-            const imageData = await renderPageImageData(page);
-            imageDatas.push(imageData);
-            pagePreviews.push(`data:image/png;base64,${imageData}`);
-        }
-
-        const CHUNK_SIZE = GEMINI_CONFIG.ocrChunkSize;
+        const CHUNK_SIZE = Math.max(1, Number(chunkSizeOverride || GEMINI_CONFIG.ocrChunkSize) || 1);
         for (let i = 0; i < imageDatas.length; i += CHUNK_SIZE) {
             const chunk = imageDatas.slice(i, i + CHUNK_SIZE);
             setStatus(`מפענח עמודים ${i + 1}-${Math.min(i + CHUNK_SIZE, imageDatas.length)} מתוך ${imageDatas.length} ב-Gemini...`);
             
             const chunkPagesText = await callGeminiOcr(apiKey, chunk);
             pages.push(...chunkPagesText.map((pageText) => maybeFixHebrewWordOrder(pageText || '')));
+
+            if (i + CHUNK_SIZE < imageDatas.length && GEMINI_CONFIG.interPageDelayMs > 0) {
+                await delay(GEMINI_CONFIG.interPageDelayMs);
+            }
+        }
+
+        return {
+            pages,
+            pagePreviews,
+            text: pages.join('\n')
+        };
+    }
+
+    async function extractTextViaGeminiNativePdf(pdfBuffer, apiKey) {
+        if (!apiKey) {
+            throw new Error('נדרש API key של Gemini או Passcode תקין עבור Gemini Native PDF.');
+        }
+
+        const endpoint = buildGeminiEndpoint('v1beta', 'gemini-1.5-flash', apiKey);
+        const prompt = [
+            'Extract OCR text from this PDF exam exactly as written.',
+            'Do NOT translate, summarize, or rewrite.',
+            'Preserve question and answer order.',
+            'Return plain text only.',
+            'Insert the exact line ---PAGE_BOUNDARY--- between every physical page.'
+        ].join('\n');
+
+        const response = await fetch(endpoint, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                contents: [{
+                    parts: [
+                        { text: prompt },
+                        { inlineData: { mimeType: 'application/pdf', data: arrayBufferToBase64(pdfBuffer) } }
+                    ]
+                }],
+                generationConfig: {
+                    temperature: 0,
+                    topP: 0.1,
+                    maxOutputTokens: 8192
+                }
+            })
+        });
+
+        if (!response.ok) {
+            const errorText = await response.text();
+            const info = getGeminiErrorInfo(response.status, errorText);
+            throw new Error(`Gemini Native PDF נכשל: ${info.userMessage}`);
+        }
+
+        const payload = await response.json();
+        const text = (payload.candidates?.[0]?.content?.parts || []).map((part) => part.text || '').join('\n').trim();
+        if (!text) {
+            throw new Error('Gemini Native PDF החזיר טקסט ריק.');
+        }
+
+        const pages = text.split(/---PAGE_BOUNDARY---/i).map((line) => maybeFixHebrewWordOrder(line.trim()));
+        return {
+            pages,
+            text: pages.join('\n')
+        };
+    }
+
+    async function extractTextViaGoogleVision(pdf, apiKey) {
+        if (!apiKey) {
+            throw new Error('עבור Google Cloud Vision יש להזין Google Cloud API key תקף.');
+        }
+
+        const visionEndpoint = `https://vision.googleapis.com/v1/images:annotate?key=${encodeURIComponent(apiKey)}`;
+        const { imageDatas, pagePreviews } = await renderAllPdfPageImages(pdf);
+        const pages = [];
+
+        const CHUNK_SIZE = GEMINI_CONFIG.ocrChunkSize;
+        for (let i = 0; i < imageDatas.length; i += CHUNK_SIZE) {
+            const chunk = imageDatas.slice(i, i + CHUNK_SIZE);
+            setStatus(`מפענח עמודים ${i + 1}-${Math.min(i + CHUNK_SIZE, imageDatas.length)} מתוך ${imageDatas.length} ב-Google Vision...`);
+
+            const response = await fetch(visionEndpoint, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    requests: chunk.map((data) => ({
+                        image: { content: data },
+                        features: [{ type: 'DOCUMENT_TEXT_DETECTION' }]
+                    }))
+                })
+            });
+
+            if (!response.ok) {
+                const raw = await response.text();
+                throw new Error(`Google Vision נכשל (${response.status}): ${raw || 'שגיאה לא ידועה'}`);
+            }
+
+            const payload = await response.json();
+            const responses = payload.responses || [];
+
+            for (let r = 0; r < chunk.length; r++) {
+                const pageResult = responses[r] || {};
+                if (pageResult.error?.message) {
+                    throw new Error(`Google Vision OCR נכשל בעמוד ${i + r + 1}: ${pageResult.error.message}`);
+                }
+                const pageText =
+                    pageResult.fullTextAnnotation?.text ||
+                    pageResult.textAnnotations?.[0]?.description ||
+                    '';
+                pages.push(maybeFixHebrewWordOrder(String(pageText || '').trim()));
+            }
 
             if (i + CHUNK_SIZE < imageDatas.length && GEMINI_CONFIG.interPageDelayMs > 0) {
                 await delay(GEMINI_CONFIG.interPageDelayMs);
@@ -865,6 +991,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const pdf = elements.pdfFile.files?.[0];
         const csv = elements.csvFile.files?.[0];
         const formNumber = elements.formNumber.value.trim();
+        const ocrEngine = (elements.ocrEngine?.value || 'gemini_chunked').trim();
 
         if (!pdf) {
             throw new Error('יש לבחור קובץ PDF לפענוח.');
@@ -872,13 +999,17 @@ document.addEventListener('DOMContentLoaded', () => {
 
         setStatus('קורא קובצי מקור...');
 
-        let apiKey = elements.apiKey.value.trim();
+        const typedApiKey = elements.apiKey.value.trim();
+        let apiKey = typedApiKey;
         const passcode = elements.passcode.value.trim();
-        if (!apiKey && passcode) {
+        if (!apiKey && passcode && ocrEngine !== 'google_vision') {
             apiKey = await decryptEmbeddedApiKey(passcode);
             if (!apiKey) {
                 throw new Error('ה-Passcode שגוי או שמפתח ה-API המוצפן לא הוגדר נכון בקובץ generator.js.');
             }
+        }
+        if (ocrEngine === 'google_vision' && !typedApiKey) {
+            throw new Error('Google Vision דורש Google Cloud API key ישיר בשדה ה-API Key. Passcode לא נתמך עבור Vision.');
         }
 
         const pdfBuffer = await pdf.arrayBuffer();
@@ -896,14 +1027,46 @@ document.addEventListener('DOMContentLoaded', () => {
         let examText = extracted.text;
         let sourcePages = extracted.rawPages;
         if (extracted.isScanned) {
-            setStatus('זוהה PDF סרוק. מנסה חילוץ עם Gemini...');
-            const geminiExtraction = await extractTextViaGemini(extracted.pdf, apiKey);
-            examText = geminiExtraction.text;
-            sourcePages = geminiExtraction.pages;
-            state.proofPageImages = geminiExtraction.pagePreviews || [];
+            if (ocrEngine === 'gemini_native') {
+                setStatus('זוהה PDF סרוק. מנסה חילוץ עם Gemini Native PDF...');
+                const nativeExtraction = await extractTextViaGeminiNativePdf(pdfBuffer, apiKey);
+                examText = nativeExtraction.text;
+                sourcePages = nativeExtraction.pages;
+                const previews = await renderAllPdfPageImages(extracted.pdf);
+                state.proofPageImages = previews.pagePreviews || [];
+            } else if (ocrEngine === 'google_vision') {
+                setStatus('זוהה PDF סרוק. מנסה חילוץ עם Google Vision...');
+                const visionExtraction = await extractTextViaGoogleVision(extracted.pdf, typedApiKey);
+                examText = visionExtraction.text;
+                sourcePages = visionExtraction.pages;
+                state.proofPageImages = visionExtraction.pagePreviews || [];
+            } else {
+                setStatus('זוהה PDF סרוק. מנסה חילוץ עם Gemini (Page Chunking)...');
+                const geminiExtraction = await extractTextViaGemini(extracted.pdf, apiKey);
+                examText = geminiExtraction.text;
+                sourcePages = geminiExtraction.pages;
+                state.proofPageImages = geminiExtraction.pagePreviews || [];
+            }
         }
 
         let parsedQuestions = parseQuestionsFromText(examText, sourcePages, extracted.pageImages);
+
+        if (extracted.isScanned && ocrEngine === 'gemini_chunked' && parsedQuestions.length < 10) {
+            setStatus('זוהו מעט שאלות. מנסה פענוח מדויק יותר עמוד-עמוד...');
+            const fallbackExtraction = await extractTextViaGemini(extracted.pdf, apiKey, 1);
+            const fallbackQuestions = parseQuestionsFromText(
+                fallbackExtraction.text,
+                fallbackExtraction.pages,
+                extracted.pageImages
+            );
+
+            if (fallbackQuestions.length > parsedQuestions.length) {
+                parsedQuestions = fallbackQuestions;
+                examText = fallbackExtraction.text;
+                sourcePages = fallbackExtraction.pages;
+                state.proofPageImages = fallbackExtraction.pagePreviews || [];
+            }
+        }
 
         if (csvText && formNumber) {
             const answerMap = extractAnswersForForm(csvText, formNumber);
