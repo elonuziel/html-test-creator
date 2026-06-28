@@ -485,8 +485,8 @@ document.addEventListener('DOMContentLoaded', () => {
         const csv = elements.csvFile.files?.[0];
         const formNumber = elements.formNumber.value.trim();
 
-        if (!pdf || !csv || !formNumber) {
-            throw new Error('יש לבחור קובץ PDF, קובץ CSV ומספר שאלון.');
+        if (!pdf) {
+            throw new Error('יש לבחור קובץ PDF לפענוח.');
         }
 
         setStatus('קורא קובצי מקור...');
@@ -500,7 +500,13 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         const pdfBuffer = await pdf.arrayBuffer();
-        const csvText = await csv.text();
+        let csvText = null;
+        if (csv) {
+            csvText = await csv.text();
+            if (!formNumber) {
+                throw new Error('אם הועלה קובץ CSV, יש להזין מספר שאלון.');
+            }
+        }
 
         setStatus('מחלץ טקסט מה-PDF...');
         const extracted = await extractPdfText(pdfBuffer);
@@ -512,9 +518,18 @@ document.addEventListener('DOMContentLoaded', () => {
             examText = fixHebrewWordOrder(examText);
         }
 
-        const parsedQuestions = parseQuestionsFromText(examText);
-        const answerMap = extractAnswersForForm(csvText, formNumber);
-        state.questions = mergeAnswers(parsedQuestions, answerMap);
+        let parsedQuestions = parseQuestionsFromText(examText);
+        
+        if (csvText && formNumber) {
+            const answerMap = extractAnswersForForm(csvText, formNumber);
+            state.questions = mergeAnswers(parsedQuestions, answerMap);
+        } else {
+            // Optional CSV bypass: Default correct answer to index 0 ('א')
+            state.questions = parsedQuestions.map(q => ({
+                ...q,
+                correctIndex: 0
+            }));
+        }
 
         renderPreview();
         disableOutputActions(false);
