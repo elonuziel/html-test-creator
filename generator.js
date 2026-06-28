@@ -15,7 +15,7 @@ document.addEventListener('DOMContentLoaded', () => {
         maxQuotaRetries: 3,
         initialRetryDelayMs: 2500,
         maxRetryDelayMs: 30000,
-        interPageDelayMs: 600
+        interPageDelayMs: 4200
     };
 
     const state = {
@@ -364,10 +364,15 @@ document.addEventListener('DOMContentLoaded', () => {
         return Math.min(exponential + jitter, GEMINI_CONFIG.maxRetryDelayMs);
     }
 
-    async function callGeminiOcr(apiKey, imageData) {
-        const prompt = 'Extract all visible Hebrew question text exactly as written. Keep structure with question headers and options. Return plain text only.';
+    async function callGeminiOcr(apiKey, imageDatas) {
+        const prompt = 'Extract all visible Hebrew question text exactly as written. Keep structure with question headers and options. Return plain text only.\n\nCRITICAL: You are receiving multiple page images. You MUST separate the extracted text for each page with the exact text "---PAGE_BOUNDARY---" on its own line.';
         const attemptErrors = [];
         const candidates = await discoverGeminiModelCandidates(apiKey);
+
+        const parts = [{ text: prompt }];
+        for (const data of imageDatas) {
+            parts.push({ inlineData: { mimeType: 'image/png', data } });
+        }
 
         for (const candidate of candidates) {
             const endpoint = buildGeminiEndpoint(candidate.version, candidate.model, apiKey);
@@ -377,23 +382,24 @@ document.addEventListener('DOMContentLoaded', () => {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
-                        contents: [{
-                            parts: [
-                                { text: prompt },
-                                { inlineData: { mimeType: 'image/png', data: imageData } }
-                            ]
-                        }]
+                        contents: [{ parts }]
                     })
                 });
 
                 if (response.ok) {
                     const payload = await response.json();
-                    const parts = payload.candidates?.[0]?.content?.parts || [];
-                    const text = parts.map((part) => part.text || '').join('\n').trim();
+                    const responseParts = payload.candidates?.[0]?.content?.parts || [];
+                    const text = responseParts.map((part) => part.text || '').join('\n').trim();
                     if (!text) {
                         throw new Error('Gemini returned empty OCR text.');
                     }
-                    return text;
+                    // Split the text by the delimiter to return an array of pages
+                    const extractedPages = text.split(/---PAGE_BOUNDARY---/i).map(s => s.trim());
+                    // Pad with empty strings if Gemini returned fewer pages than expected
+                    while (extractedPages.length < imageDatas.length) {
+                        extractedPages.push('');
+                    }
+                    return extractedPages;
                 }
 
                 const errorText = await response.text();
@@ -425,14 +431,24 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         const pages = [];
+        const imageDatas = [];
+
         for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber++) {
-            setStatus(`סורק עמוד ${pageNumber}/${pdf.numPages} עם Gemini...`);
+            setStatus(`מכין עמוד ${pageNumber}/${pdf.numPages} לשליחה...`);
             const page = await pdf.getPage(pageNumber);
             const imageData = await renderPageImageData(page);
-            const pageText = await callGeminiOcr(apiKey, imageData);
-            pages.push(pageText);
+            imageDatas.push(imageData);
+        }
 
-            if (pageNumber < pdf.numPages && GEMINI_CONFIG.interPageDelayMs > 0) {
+        const CHUNK_SIZE = 10;
+        for (let i = 0; i < imageDatas.length; i += CHUNK_SIZE) {
+            const chunk = imageDatas.slice(i, i + CHUNK_SIZE);
+            setStatus(`מפענח עמודים ${i + 1}-${Math.min(i + CHUNK_SIZE, imageDatas.length)} מתוך ${imageDatas.length} ב-Gemini...`);
+            
+            const chunkPagesText = await callGeminiOcr(apiKey, chunk);
+            pages.push(...chunkPagesText);
+
+            if (i + CHUNK_SIZE < imageDatas.length && GEMINI_CONFIG.interPageDelayMs > 0) {
                 await delay(GEMINI_CONFIG.interPageDelayMs);
             }
         }
