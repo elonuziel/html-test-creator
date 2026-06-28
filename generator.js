@@ -9,6 +9,11 @@ document.addEventListener('DOMContentLoaded', () => {
         saltB64: 'DDyNzdsTLeWBGAnJIuT/Wg=='
     };
 
+    const GEMINI_CONFIG = {
+        apiVersion: 'v1beta',
+        models: ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-flash']
+    };
+
     const state = {
         questions: [],
         templateCache: null
@@ -207,35 +212,109 @@ document.addEventListener('DOMContentLoaded', () => {
         return canvas.toDataURL('image/png').replace(/^data:image\/png;base64,/, '');
     }
 
+    function buildGeminiEndpoint(model, apiKey) {
+        return `https://generativelanguage.googleapis.com/${GEMINI_CONFIG.apiVersion}/models/${model}:generateContent?key=${encodeURIComponent(apiKey)}`;
+    }
+
+    function getGeminiErrorInfo(status, errorText) {
+        const raw = String(errorText || '');
+        let parsedMessage = '';
+
+        try {
+            const parsed = JSON.parse(raw);
+            parsedMessage = parsed?.error?.message || '';
+        } catch {
+            parsedMessage = raw;
+        }
+
+        const message = String(parsedMessage || raw || '').trim();
+        const normalized = message.toLowerCase();
+
+        if (status === 401 || status === 403) {
+            return {
+                code: 'auth',
+                retryNextModel: false,
+                userMessage: 'מפתח Gemini לא תקין, חסום או חסרות הרשאות (401/403).'
+            };
+        }
+
+        if (status === 429) {
+            return {
+                code: 'quota',
+                retryNextModel: false,
+                userMessage: 'חריגה ממכסה או קצב בקשות Gemini (429). נסה שוב מאוחר יותר.'
+            };
+        }
+
+        if (
+            status === 404 ||
+            normalized.includes('not found') ||
+            normalized.includes('not supported for generatecontent') ||
+            normalized.includes('is not supported for generatecontent')
+        ) {
+            return {
+                code: 'model_not_found',
+                retryNextModel: true,
+                userMessage: 'המודל אינו זמין עבור המפתח/גרסת API, מנסה מודל חלופי...'
+            };
+        }
+
+        if (status >= 500) {
+            return {
+                code: 'server',
+                retryNextModel: true,
+                userMessage: 'שגיאת שרת זמנית של Gemini. מנסה מודל חלופי...'
+            };
+        }
+
+        return {
+            code: 'unknown',
+            retryNextModel: false,
+            userMessage: message || `Gemini request failed (${status}).`
+        };
+    }
+
     async function callGeminiOcr(apiKey, imageData) {
-        const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${encodeURIComponent(apiKey)}`;
         const prompt = 'Extract all visible Hebrew question text exactly as written. Keep structure with question headers and options. Return plain text only.';
-        const response = await fetch(endpoint, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                contents: [{
-                    parts: [
-                        { text: prompt },
-                        { inlineData: { mimeType: 'image/png', data: imageData } }
-                    ]
-                }]
-            })
-        });
+        const attemptErrors = [];
 
-        if (!response.ok) {
+        for (const model of GEMINI_CONFIG.models) {
+            const endpoint = buildGeminiEndpoint(model, apiKey);
+            const response = await fetch(endpoint, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    contents: [{
+                        parts: [
+                            { text: prompt },
+                            { inlineData: { mimeType: 'image/png', data: imageData } }
+                        ]
+                    }]
+                })
+            });
+
+            if (response.ok) {
+                const payload = await response.json();
+                const parts = payload.candidates?.[0]?.content?.parts || [];
+                const text = parts.map((part) => part.text || '').join('\n').trim();
+                if (!text) {
+                    throw new Error('Gemini returned empty OCR text.');
+                }
+                return text;
+            }
+
             const errorText = await response.text();
-            throw new Error(`Gemini request failed: ${response.status} ${errorText}`);
+            const errorInfo = getGeminiErrorInfo(response.status, errorText);
+            attemptErrors.push(`[${model}] ${response.status} ${errorInfo.userMessage}`);
+
+            if (errorInfo.retryNextModel) {
+                continue;
+            }
+
+            throw new Error(`Gemini request failed: ${errorInfo.userMessage}`);
         }
 
-        const payload = await response.json();
-        const parts = payload.candidates?.[0]?.content?.parts || [];
-        const text = parts.map((part) => part.text || '').join('\n').trim();
-        if (!text) {
-            throw new Error('Gemini returned empty OCR text.');
-        }
-
-        return text;
+        throw new Error(`Gemini request failed: לא נמצא מודל Gemini נתמך. ${attemptErrors.join(' | ')}`);
     }
 
     async function extractTextViaGemini(pdf, apiKey) {
@@ -587,10 +666,11 @@ document.addEventListener('DOMContentLoaded', () => {
         setStatus('קורא קובצי מקור...');
 
         let apiKey = elements.apiKey.value.trim();
-        if (!apiKey && elements.passcode.value.trim()) {
-            apiKey = await decryptEmbeddedApiKey(elements.passcode.value.trim());
-            if (apiKey) {
-                elements.apiKey.value = apiKey;
+        const passcode = elements.passcode.value.trim();
+        if (!apiKey && passcode) {
+            apiKey = await decryptEmbeddedApiKey(passcode);
+            if (!apiKey) {
+                throw new Error('ה-Passcode שגוי או שמפתח ה-API המוצפן לא הוגדר נכון בקובץ generator.js.');
             }
         }
 
