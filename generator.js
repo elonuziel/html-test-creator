@@ -4,9 +4,9 @@ document.addEventListener('DOMContentLoaded', () => {
     };
 
     const EMBEDDED_KEY = {
-        encryptedKeyB64: '',
-        ivB64: '',
-        saltB64: ''
+        encryptedKeyB64: 'Jk71s+jMhwvQREzIhFB3OeeBOAHMTrX5tQn/PflNsFfZABcZEaoK1s0nONNDm8jFBi8VVp1RcRc6E0MA4t3PD4FCkL/b',
+        ivB64: 'Klg+fy9R79W9jMIz',
+        saltB64: 'DDyNzdsTLeWBGAnJIuT/Wg=='
     };
 
     const state = {
