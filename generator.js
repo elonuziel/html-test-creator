@@ -391,7 +391,9 @@ document.addEventListener('DOMContentLoaded', () => {
                     const responseParts = payload.candidates?.[0]?.content?.parts || [];
                     const text = responseParts.map((part) => part.text || '').join('\n').trim();
                     if (!text) {
-                        throw new Error('Gemini returned empty OCR text.');
+                        const finishReason = payload.candidates?.[0]?.finishReason || 'UNKNOWN';
+                        const promptFeedback = payload.promptFeedback?.blockReason || 'NONE';
+                        throw new Error(`Gemini returned empty OCR text. Finish Reason: ${finishReason}, Prompt Blocked: ${promptFeedback}. Raw: ${JSON.stringify(payload)}`);
                     }
                     // Split the text by the delimiter to return an array of pages
                     const extractedPages = text.split(/---PAGE_BOUNDARY---/i).map(s => s.trim());
