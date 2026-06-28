@@ -231,9 +231,11 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function parseQuestionsFromText(text) {
         const lines = text.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
-        const qPattern = /(?:^|\s)(?:שאלה\s+(?:מספר\s+)?\d+\s*:?|:?\d+\s*מספר\s+שאלה|:?\d+\s*שאלה|\d+\s*[\.\)-]|[\.\)-]\s*\d+)(?:\s|$)/;
-        const ansPatternStart = /^[\.]?([אבגד1-4])[\.\)]\s*(.*)$/;
-        const ansPatternEnd = /^(.*)\s+[\.]?([אבגד1-4])[\.\)]$/;
+        // Matches: 'שאלה מספר 1:', 'שאלה מספר :1' (space before colon from PDF.js), 'שאלה 1:', '1.', '1)'
+        const qPattern = /(?:^|\s)(?:שאלה\s+(?:מספר\s+)?:?\d+\s*:?|שאלה\s+(?:מספר\s+)?\d+|:?\d+\s*:?\s*מספר\s+שאלה|:?\d+\s*:?\s*שאלה|\d+\s*[\.\)-]|[\.\)-]\s*\d+)(?:\s|$)/;
+        // Matches: 'א. text', 'א . text' (space between letter and dot from PDF.js visual layout)
+        const ansPatternStart = /^([אבגד1-4])\s*[\.]\s*(.*)$|^([אבגד1-4])[\)]\s*(.*)$/;
+        const ansPatternEnd = /^(.*)\s+([אבגד1-4])\s*[\.\)]$/;
         const noisePattern = /^עמוד\s+\d+\s+מתוך\s+\d+$/;
 
         const rawQuestions = [];
@@ -247,7 +249,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         for (const line of lines) {
-            if (!line || noisePattern.test(line) || line.includes('קוד מבחן') || line.includes("מבחן מס'")) {
+            if (!line || noisePattern.test(line) || line.includes('קוד מבחן') || line.includes("מבחן מס") || line.includes('מבחן מס')) {
                 continue;
             }
 
@@ -264,16 +266,22 @@ document.addEventListener('DOMContentLoaded', () => {
                 continue;
             }
 
+            // ansPatternStart has two capture groups: (letter)(text) OR (letter2)(text2)
             let match = line.match(ansPatternStart) || reversedLine.match(ansPatternStart);
-            let endMatch = line.match(ansPatternEnd) || reversedLine.match(ansPatternEnd);
+            let endMatch = (!match) && (line.match(ansPatternEnd) || reversedLine.match(ansPatternEnd));
 
             if (match || endMatch) {
                 stateMode = 2;
-                let letter = match ? match[1] : endMatch[2];
-                let answerText = match ? match[2] : endMatch[1];
-                
-                answerText = (answerText || '').trim();
-                
+                let letter, answerText;
+                if (match) {
+                    // group 1+2 for 'א. text', group 3+4 for 'א) text'
+                    letter = match[1] || match[3];
+                    answerText = (match[2] || match[4] || '').trim();
+                } else {
+                    letter = endMatch[2];
+                    answerText = (endMatch[1] || '').trim();
+                }
+
                 if ((letter === 'א' || letter === '1') && !answerText && current.text.length > 0) {
                     answerText = current.text.pop();
                 }
