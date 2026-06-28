@@ -208,7 +208,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     async function callGeminiOcr(apiKey, imageData) {
-        const endpoint = `https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key=${encodeURIComponent(apiKey)}`;
+        const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${encodeURIComponent(apiKey)}`;
         const prompt = 'Extract all visible Hebrew question text exactly as written. Keep structure with question headers and options. Return plain text only.';
         const response = await fetch(endpoint, {
             method: 'POST',
