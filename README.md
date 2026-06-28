@@ -34,6 +34,11 @@ A first implementation pass is now available:
 - **[quiz_generator.html](quiz_generator.html)**: Browser UI to upload exam PDF + answers CSV.
 - **[generator.js](generator.js)**: Extracts text from PDF pages, parses questions, merges CSV answer keys by form number, and exports `questions.json`.
 
+### Gemini OCR Reliability Note
+- The scanned-PDF OCR flow uses Gemini with automatic model fallback.
+- If one model becomes unavailable (for example, due to API/version rollout changes), the generator automatically tries the next supported model.
+- A 404 model error usually indicates model availability drift, not necessarily a bad passcode.
+
 ## 📄 License
 
 This project is licensed under the MIT License. See the [LICENSE](LICENSE) file for details.

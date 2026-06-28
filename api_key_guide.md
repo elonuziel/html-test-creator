@@ -48,3 +48,19 @@ git push origin feat-site
 Once deployed, anyone who visits the live site can simply type your chosen Passcode into the "Passcode" box and click "Run Parse". They do not need to fill in the "Gemini API Key" box at all.
 
 If they ever want to use their own key, they can leave the Passcode blank and paste their own API key into the top box.
+
+## Troubleshooting
+
+### Error: "Passcode is wrong" (or decryption failed)
+- Re-run `python encrypt_api_key.py` and paste the full `EMBEDDED_KEY` block into [generator.js](generator.js).
+- Make sure the passcode you type in the UI is exactly the same passcode used during encryption.
+- Confirm there are no extra spaces before/after the passcode.
+
+### Error: `Gemini request failed: 404 ... model ... not found`
+- This usually means the requested Gemini model is not currently available for your API key/project/API version.
+- The app now tries multiple Gemini Flash models automatically, so a single model deprecation should no longer block OCR.
+- If 404 persists for all fallbacks, verify your key is from Google AI Studio and has Gemini API access enabled.
+
+### Error: 401/403/429 from Gemini
+- `401/403`: API key is invalid, restricted, or lacks Gemini permissions.
+- `429`: quota/rate limit exceeded; wait and retry or use a key with more quota.
