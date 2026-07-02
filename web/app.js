@@ -81,9 +81,25 @@ document.addEventListener('DOMContentLoaded', () => {
         localStorage.removeItem(STORAGE_KEY);
     }
 
+    // ── Parse URL Parameter ───────────────────────────────────────────────────
+    const urlParams = new URLSearchParams(window.location.search);
+    const testPath = urlParams.get('test');
+
+    if (!testPath) {
+        // No test selected: show exam selection menu
+        setupScreen.classList.remove('active');
+        const menuScreen = document.getElementById('menu-screen');
+        if(menuScreen) menuScreen.classList.add('active');
+        return; // Stop execution, don't fetch questions
+    }
+
     // ── Fetch Questions ───────────────────────────────────────────────────────
-    fetch('questions.json')
-        .then(r => r.json())
+    const jsonUrl = `../${testPath}/questions.json?v=` + new Date().getTime();
+    fetch(jsonUrl)
+        .then(r => {
+            if (!r.ok) throw new Error("Could not load " + jsonUrl);
+            return r.json();
+        })
         .then(data => {
             questions = data.map(q => {
                 const options = q.options.map((text, id) => ({ id, text }));
@@ -92,7 +108,14 @@ document.addEventListener('DOMContentLoaded', () => {
                     const j = Math.floor(Math.random() * (i + 1));
                     [options[i], options[j]] = [options[j], options[i]];
                 }
-                return { ...q, options };
+                
+                // Adjust relative image path if present
+                let img = q.image;
+                if (img && !img.startsWith('http')) {
+                    img = `../${testPath}/${img}`;
+                }
+
+                return { ...q, options, image: img };
             });
 
             // Check for saved progress
@@ -101,7 +124,11 @@ document.addEventListener('DOMContentLoaded', () => {
                 resumeNotice.classList.remove('hidden');
             }
         })
-        .catch(err => console.error('Error loading questions.json:', err));
+        .catch(err => {
+            console.error('Error loading questions:', err);
+            questionText.innerHTML = `<span style="color:red">שגיאה בטעינת המבחן. אנא ודא שהנתיב נכון.</span>`;
+            switchScreen(setupScreen, quizScreen);
+        });
 
     // ── Image Zoom ────────────────────────────────────────────────────────────
     questionImage.addEventListener('click', () => {

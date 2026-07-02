@@ -30,6 +30,23 @@
     </header>
 
     <main class="container">
+        <!-- Menu Screen -->
+        <div id="menu-screen" class="screen">
+            <div class="welcome-card">
+                <h1>בחירת מבחן</h1>
+                <p>אנא בחר מבחן מרשימת המבחנים הזמינים, או הזן נתיב למבחן חדש.</p>
+                <div style="margin: 20px 0;">
+                    <a href="?test=tests/test_5" class="secondary-btn" style="display: block; margin-bottom: 10px; text-decoration: none;">מבחן 5 (Test 5)</a>
+                    <a href="?test=tests/2022/מועד_ב_interactive" class="secondary-btn" style="display: block; margin-bottom: 10px; text-decoration: none;">2022 מועד ב'</a>
+                </div>
+                <div style="margin-top: 30px;">
+                    <p style="font-size: 0.9em; color: var(--text-secondary);">או הקלד נתיב למבחן:</p>
+                    <input type="text" id="custom-test-path" placeholder="לדוגמה: tests/my_test" style="padding: 10px; border-radius: 5px; border: 1px solid var(--primary-color); background: var(--bg-color); color: var(--text-color); width: 60%;">
+                    <button onclick="window.location.search = '?test=' + document.getElementById('custom-test-path').value" class="primary-btn">טען מבחן</button>
+                </div>
+            </div>
+        </div>
+
         <!-- Setup Screen -->
         <div id="setup-screen" class="screen active">
             <div class="welcome-card">
