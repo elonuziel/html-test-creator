@@ -269,6 +269,8 @@ if __name__ == '__main__':
 
 After parsing, run this to populate `correctIndex` from an Excel answer key:
 
+> **💡 Note for Tomamix / TTP Exports:** If your answer key is a Tomamix export containing `שאלון` and `3 (2) [15] {4}` formatted cells, refer to `llm_csv_extraction_guide.md` for the extraction logic instead of the simple A/B/C/D mapping below.
+
 ```python
 # apply_answer_key.py
 # Excel format assumed: Column A = question number (1-based), Column B = correct letter (א/ב/ג/ד)

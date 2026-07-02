@@ -20,6 +20,7 @@ Find the row containing the column headers. Look for columns labeled `שאלה 1
 ### Step 3: Locate the Data Row
 Locate the target row by searching the first column (`שאלון`) for the requested Questionnaire ID / Test form number (e.g., `63` or `102`). Do not assume the target is always the row directly beneath the column headers, as the CSV file may contain answers for many students or versions.
 
+* **Tomamix/TTP Exports Tip:** The row containing column headers (like `שאלון` and `שאלה 1`) is usually **not the first row** of the file (often row 5 or 6). When parsing (especially with tools like `pandas.read_excel`), do not assume `header=0`. Instead, scan the rows dynamically until you find the row containing `שאלון` to identify the headers.
 * **Encoding Tip:** When reading the CSV file programmatically, ensure you use the correct encoding (typically `utf-8` or `utf-8-sig` to handle Hebrew characters and byte-order marks properly).
 
 ### Step 4: Parse the Cell Values
