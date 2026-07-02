@@ -110,3 +110,25 @@ If everything passes:
 2. Move `final_questions.json` into the directory and rename it to `questions.json`.
 3. Move any extracted images into `tests/test_name/images/`.
 4. The test is now playable at `http://localhost:8000/web/index.html?test=tests/test_name`!
+
+---
+
+## Practical Notes on This Repository
+
+### Test Repository Status
+- **tests/2019 a**: Digital PDF (2019 Botany Moed A) – Uses automated text extraction
+- **tests/2019 b**: Digital PDF (2019 Botany Moed B) – Uses automated text extraction  
+- **tests/2018 a**: Scanned PDF (2018 Botany Moed A) – Uses manual transcription
+- **tests/2018 b**: Scanned PDF (2018 Botany Moed B) – Uses manual transcription (5 pages, 25 text-only questions)
+
+### Scanned PDF Transcription (2018 Moed B Example)
+For scanned PDFs without OCR text layers:
+1. Render each page to PNG with `3_render_pdf_pages.py` for reference
+2. Manually read and transcribe questions from the rendered PNGs into `questions.json`
+3. Use 4 options per question format: `"options": ["א", "ב", "ג", "ד"]`
+4. **Do not invent questions or diagrams** – only transcribe what is actually visible
+
+### Exam Code 000 (Master Copies)
+For exam code `000` master copies, the correct answer is usually encoded directly in question options (e.g., `כל התשובות נכונות` or `תשובות א ו-ג נכונות` as an option), not in a separate answer key. The correct answer is always **Option 1 (`correctIndex: 0`)** unless explicitly stated otherwise in the question options.
+
+Preserve combination answers when found – do not collapse them automatically.
