@@ -78,8 +78,7 @@ If the file is an Excel export from Tomamix, it often has the following quirks:
 1. **Header Row Location:** The column headers (like `שאלון` and `שאלה 1`) are usually **not on the first row** (often row 5 or 6).
 2. **Cell Format:** Cells look like `3 (2) [15] {4}`. The correct answer is the integer inside the parentheses `()`.
 
-Because it is an Excel file, `4_extract_csv_answers.py` will not work directly unless you convert it to CSV first. Alternatively, you can write a short Pandas script to extract it:
-> **⚠️ WARNING FOR PANDAS:** Do not assume `header=0`. You must dynamically scan the rows to find the row containing the string `שאלון` and use that as the header row. Map cancelled questions (e.g. cells containing `והת` or `מבוטלת`) to `null`. Save the output as `answers.json` structured like `{"1": 3, "2": null, "3": 1...}`.
+`4_extract_csv_answers.py` now handles both CSV and Excel inputs directly. It scans for the header row instead of assuming `header=0`, and it maps cancelled questions (e.g. cells containing `והת` or `מבוטלת`) to `null`. Save the output as `answers.json` structured like `{"1": 3, "2": null, "3": 1...}`.
 
 ---
 

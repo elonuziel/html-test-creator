@@ -23,8 +23,8 @@ The web application (`index.html`, `app.js`, `style.css`) is a premium-designed,
 
 This repository also hosts comprehensive documentation on digitizing and extracting study materials:
 
-1. **[Hebrew PDF Conversion Guide](hebrew_pdf_conversion_guide.md)**: A detailed walkthrough on converting Hebrew PDFs to markdown formats using state-of-the-art tools (e.g., MarkItDown).
-2. **[LLM CSV Extraction Guide](llm_csv_extraction_guide.md)**: Guidance on parsing exams and answer keys using LLMs and structured formats (like CSV files).
+1. **[LLM Runbook](LLM_RUNBOOK.md)**: The end-to-end workflow for turning Hebrew exam PDFs and answer keys into playable quiz folders.
+2. **[Python Utilities](python_scripts/README.md)**: Script-by-script usage for the extraction pipeline.
 
 ## 📄 License
 

@@ -1,11 +1,13 @@
 # Python Utilities for PDF to HTML Interactive Quiz
 
-This folder contains the complete, generalized Python pipeline for extracting Hebrew exam PDFs into the interactive HTML format used by this project.
+This folder contains the Python pipeline for extracting Hebrew exam PDFs into the interactive HTML format used by this project.
 
 ## Prerequisites
 ```bash
-pip install pymupdf
+pip install pymupdf pandas openpyxl
 ```
+
+`pandas` and `openpyxl` are only needed if you plan to read Excel answer keys with `4_extract_csv_answers.py`.
 
 ## The Workflow
 
@@ -38,8 +40,9 @@ Renders a PDF to PNG images per page.
 ### 4. Answer Extraction and Merging
 
 **A. `4_extract_csv_answers.py`**
-Extracts the correct answers for a specific exam form from the master student answers CSV.
-**Usage:** `python 4_extract_csv_answers.py "answers.csv" "76" -o "answers.json"`
+Extracts the correct answers for a specific exam form from the master student answers CSV or Excel export.
+The script scans for the row containing `שאלון` and handles the `3 (2) [15] {4}`-style cell format.
+**Usage:** `python 4_extract_csv_answers.py "answers.xlsx" "76" -o "answers.json"`
 *(Where "76" is the test form number)*
 
 **B. `6_merge_json_answers.py`**
