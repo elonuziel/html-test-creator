@@ -6,8 +6,8 @@ import argparse
 if hasattr(sys.stdout, 'reconfigure'):
     sys.stdout.reconfigure(encoding='utf-8')
 
-Q_PATTERN   = re.compile(r'^שאלה מספר \d+:')
-ANS_PATTERN = re.compile(r'^([אבגד])\.(.*)')
+Q_PATTERN   = re.compile(r'^(שאלה מספר|מספר שאלה)\s*:?\s*\d+:?')
+ANS_PATTERN = re.compile(r'^([א-ז])\.(.*)')
 NOISE_RE    = re.compile(r"^עמוד \d+ מתוך \d+$")
 NOISE_WORDS = ("קוד מבחן", "מבחן מס'")
 

@@ -155,8 +155,8 @@ document.addEventListener('DOMContentLoaded', () => {
         // Only act when quiz screen is active
         if (!quizScreen.classList.contains('active')) return;
 
-        // Option selection: 1–4
-        if (['1', '2', '3', '4'].includes(e.key)) {
+        // Option selection: 1–9
+        if (['1', '2', '3', '4', '5', '6', '7', '8', '9'].includes(e.key)) {
             const idx = parseInt(e.key) - 1;
             const opts = optionsContainer.querySelectorAll('.option');
             if (opts[idx] && !opts[idx].classList.contains('disabled')) {
