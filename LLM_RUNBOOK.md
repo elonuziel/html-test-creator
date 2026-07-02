@@ -13,6 +13,10 @@ Ensure the required libraries are installed:
 pip install pymupdf pandas openpyxl
 ```
 
+## Practical Findings From This Repo
+- For the digital Hebrew PDFs in this repository, PyMuPDF already returned the text in correct logical Hebrew order. A blanket word-reversal pass scrambled the questions and split option letters across lines.
+- The provided 2019 Botany PDFs are exam code `000` master copies. In these files, the intended answer is usually option `א`, but some questions use a combination answer like `תשובות ב ו-ד נכונות` as a regular option and that option should be preserved as the correct one when applicable.
+
 ---
 
 ## Step 1: Detect PDF Type
@@ -26,6 +30,8 @@ It will output whether the PDF is a **Digital PDF** (extractable text) or a **Sc
 
 ## Step 2: Extract Questions (Digital PDF Path)
 If the PDF is Digital, you can automate text extraction.
+
+Before post-processing the extracted text, inspect a sample page. Do not assume Hebrew needs to be reversed line-by-line; if the raw output is already logical, reversing it will degrade the result.
 
 **2A. Extract Raw Text**
 Use PyMuPDF to extract the text and automatically fix the Hebrew word-order reversal issue:
@@ -66,6 +72,8 @@ You must read the generated images, extract the questions and options manually (
 ## Step 3: Extract the Answer Key
 
 You will usually be provided with an Answer Key file (e.g. `answers.csv` or `answers.xlsx`).
+
+If you do not receive an answer key but the PDF is an exam code `000` master copy, expect the correct option to be encoded directly in the question options. Preserve combination-answer options such as `כל התשובות נכונות` or `תשובות ב ו-ד נכונות` instead of collapsing them into option `א` automatically.
 
 ### Scenario A: Standard CSV
 If it's a standard CSV, use the provided script:
